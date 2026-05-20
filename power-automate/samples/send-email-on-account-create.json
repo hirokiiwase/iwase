@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "description": "Send a notification email when a new Account is created in Dataverse.",
+  "note": "This is a reference schema for documentation purposes. Import via Power Automate > My flows > Import, or recreate manually.",
+  "trigger": {
+    "type": "OpenApiConnection",
+    "kind": "AutomatedCloudFlow",
+    "connector": "shared_commondataserviceforapps",
+    "operation": "SubscribeWebhookTrigger",
+    "parameters": {
+      "catalog": "Accounts",
+      "message": "1",
+      "entityname": "account",
+      "scope": "3"
+    }
+  },
+  "actions": [
+    {
+      "id": "compose_subject",
+      "type": "Expression",
+      "expression": "concat('New Account Created: ', triggerOutputs()?['body/name'])",
+      "description": "Build the email subject line."
+    },
+    {
+      "id": "send_email",
+      "type": "OpenApiConnection",
+      "connector": "shared_office365",
+      "operation": "SendEmailV2",
+      "parameters": {
+        "To": "your-team@example.com",
+        "Subject": "@{outputs('compose_subject')}",
+        "Body": "<p>A new account has been created:</p><ul><li><b>Name:</b> @{triggerOutputs()?['body/name']}</li><li><b>Phone:</b> @{triggerOutputs()?['body/telephone1']}</li><li><b>Created by:</b> @{triggerOutputs()?['body/_createdby_value@OData.Community.Display.V1.FormattedValue']}</li></ul>",
+        "Importance": "Normal"
+      },
+      "runAfter": {
+        "compose_subject": ["Succeeded"]
+      }
+    }
+  ]
+}

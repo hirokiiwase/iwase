@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest>
+  <control namespace="D365Practice" constructor="LinearInputComponent" version="1.0.0"
+           display-name-key="LinearInputComponent_DisplayName"
+           description-key="LinearInputComponent_Desc"
+           control-type="standard">
+
+    <!-- Bound field: a whole-number column -->
+    <property name="controlValue"
+              display-name-key="controlValue_DisplayName"
+              description-key="controlValue_Desc"
+              of-type="Whole.None"
+              usage="bound"
+              required="true" />
+
+    <!-- Configuration: slider min/max -->
+    <property name="minValue"
+              display-name-key="minValue_DisplayName"
+              description-key="minValue_Desc"
+              of-type-group="numbers"
+              usage="input"
+              required="false"
+              default-value="0" />
+
+    <property name="maxValue"
+              display-name-key="maxValue_DisplayName"
+              description-key="maxValue_Desc"
+              of-type-group="numbers"
+              usage="input"
+              required="false"
+              default-value="100" />
+
+    <type-group name="numbers">
+      <type>Whole.None</type>
+      <type>Currency</type>
+      <type>FP</type>
+      <type>Decimal</type>
+    </type-group>
+
+    <resources>
+      <code path="index.ts" order="1" />
+    </resources>
+  </control>
+</manifest>

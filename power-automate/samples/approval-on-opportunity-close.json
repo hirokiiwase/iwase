@@ -1,0 +1,82 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "description": "Start an approval process when an Opportunity status changes to 'Won'.",
+  "note": "Reference schema. Recreate in Power Automate or import as a solution component.",
+  "trigger": {
+    "type": "OpenApiConnection",
+    "kind": "AutomatedCloudFlow",
+    "connector": "shared_commondataserviceforapps",
+    "operation": "SubscribeWebhookTrigger",
+    "parameters": {
+      "catalog": "Opportunities",
+      "message": "2",
+      "entityname": "opportunity",
+      "scope": "3",
+      "filterExpression": "statecode eq 1 and statuscode eq 3"
+    }
+  },
+  "actions": [
+    {
+      "id": "start_approval",
+      "type": "OpenApiConnection",
+      "connector": "shared_approvals",
+      "operation": "CreateAnApproval",
+      "parameters": {
+        "approvalType": "Approve/Reject - First to respond",
+        "title": "Opportunity Won Approval – @{triggerOutputs()?['body/name']}",
+        "assignedTo": "manager@example.com",
+        "details": "Please review and approve the closed opportunity.\n\nName: @{triggerOutputs()?['body/name']}\nEstimated Revenue: @{triggerOutputs()?['body/estimatedvalue@OData.Community.Display.V1.FormattedValue']}\nClose Date: @{triggerOutputs()?['body/actualclosedate']}"
+      }
+    },
+    {
+      "id": "wait_for_approval",
+      "type": "OpenApiConnectionWebhook",
+      "connector": "shared_approvals",
+      "operation": "WaitForAnApproval",
+      "parameters": {
+        "approvalId": "@{outputs('start_approval')?['body/approvalId']}"
+      },
+      "runAfter": {
+        "start_approval": ["Succeeded"]
+      }
+    },
+    {
+      "id": "condition_approved",
+      "type": "If",
+      "expression": "@equals(outputs('wait_for_approval')?['body/outcome'], 'Approve')",
+      "runAfter": {
+        "wait_for_approval": ["Succeeded"]
+      },
+      "ifTrue": {
+        "actions": [
+          {
+            "id": "update_opportunity_approved",
+            "type": "OpenApiConnection",
+            "connector": "shared_commondataserviceforapps",
+            "operation": "UpdateRecord",
+            "parameters": {
+              "entityName": "opportunity",
+              "recordId": "@{triggerOutputs()?['body/opportunityid']}",
+              "new_approvalstatus": 100000001
+            }
+          }
+        ]
+      },
+      "ifFalse": {
+        "actions": [
+          {
+            "id": "notify_rejection",
+            "type": "OpenApiConnection",
+            "connector": "shared_office365",
+            "operation": "SendEmailV2",
+            "parameters": {
+              "To": "@{triggerOutputs()?['body/_ownerid_value@OData.Community.Display.V1.FormattedValue']}",
+              "Subject": "Opportunity Approval Rejected – @{triggerOutputs()?['body/name']}",
+              "Body": "<p>Your opportunity <b>@{triggerOutputs()?['body/name']}</b> was not approved.</p><p>Reviewer comments: @{outputs('wait_for_approval')?['body/responses'][0]['comments']}</p>"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
