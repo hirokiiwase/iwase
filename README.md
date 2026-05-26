@@ -59,3 +59,5 @@ If you are new to Dynamics 365 / Power Platform development, recommended order:
 - [Power Apps Component Framework docs](https://learn.microsoft.com/power-apps/developer/component-framework/overview)
 - [Dataverse SDK for .NET](https://learn.microsoft.com/power-apps/developer/data-platform/org-service/overview)
 - [Xrm Client API Reference](https://learn.microsoft.com/power-apps/developer/model-driven-apps/clientapi/reference)
+
+<!-- 学習メモ: 2026-05-26 GitHubの操作を練習中 -->
