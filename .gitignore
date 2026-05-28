@@ -33,3 +33,22 @@ Thumbs.db
 .vscode/settings.json
 .idea/
 *.swp
+
+
+# Strong name key (secret)
+*.snk
+
+# Azurite local storage emulator
+AzuriteConfig
+__azurite_db_*.json
+__blobstorage__/
+
+# Azure Functions local settings
+azure/**/local.settings.json
+
+# Test output files
+test_output.pdf
+test_azure.pdf
+
+# Claude internal
+.claude/

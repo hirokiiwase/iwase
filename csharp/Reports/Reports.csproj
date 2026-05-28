@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <AssemblyName>D365.Reports</AssemblyName>
+    <RootNamespace>D365.Reports</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>D365Reports.snk</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Dataverse / CRM SDK -->
+    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.49" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- .NET Framework 標準の ZIP ライブラリ（xlsx 生成に使用） -->
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
+  <!--
+    デプロイ時は ILMerge / ILRepack で ClosedXML を本体 DLL に結合してから
+    Plugin Registration Tool でアップロードする。
+  -->
+
+</Project>
