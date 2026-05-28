@@ -17,9 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- .NET Framework 標準の ZIP ライブラリ（xlsx 生成に使用） -->
+    <!-- .NET Framework 標準ライブラリ -->
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Net.Http" />
   </ItemGroup>
 
   <!--
