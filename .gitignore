@@ -34,9 +34,6 @@ Thumbs.db
 .idea/
 *.swp
 
-# Local memo
-MEMO.md
-D365_Reports_Lecture.md
 
 # Strong name key (secret)
 *.snk
