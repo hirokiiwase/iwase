@@ -1,19 +1,16 @@
 using System;
-using System.IO;
-using ClosedXML.Excel;
+using System.Collections.Generic;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 
-// 既存の PluginBase / PluginContext を参照するため同じ名前空間にしない
-// → D365.Reports として独立させ、IPlugin を直接実装する
 namespace D365.Reports
 {
     /// <summary>
-    /// Post-Create / Post-Update plugin on the Account entity.
-    /// Generates an Excel report and saves it as an annotation (attachment) on the record.
+    /// Post-Create plugin on the Account entity.
+    /// Generates an Excel (.xlsx) report and saves it as an annotation on the record.
     ///
     /// Registration:
-    ///   Message : Create (または Update)
+    ///   Message : Create
     ///   Entity  : account
     ///   Stage   : Post-Operation (40)
     ///   Mode    : Asynchronous
@@ -37,7 +34,6 @@ namespace D365.Reports
 
                 tracing.Trace("AccountExcelReport: fetching account {0}", target.Id);
 
-                // 最新データを取得（Post 操作なので DB に確定済み）
                 var account = svc.Retrieve("account", target.Id,
                     new ColumnSet(
                         "name",
@@ -48,9 +44,8 @@ namespace D365.Reports
                         "address1_stateorprovince"));
 
                 tracing.Trace("AccountExcelReport: generating Excel");
-                var excelBytes = BuildExcel(account);
+                var xlsxBytes = BuildXlsx(account);
 
-                // Annotation（添付ファイル）としてレコードに保存
                 var note = new Entity("annotation")
                 {
                     ["objectid"]       = new EntityReference("account", target.Id),
@@ -58,7 +53,7 @@ namespace D365.Reports
                     ["subject"]        = $"取引先レポート {DateTime.UtcNow:yyyy-MM-dd}",
                     ["filename"]       = $"account_{DateTime.UtcNow:yyyyMMdd}.xlsx",
                     ["mimetype"]       = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    ["documentbody"]   = Convert.ToBase64String(excelBytes),
+                    ["documentbody"]   = Convert.ToBase64String(xlsxBytes),
                 };
 
                 svc.Create(note);
@@ -76,66 +71,22 @@ namespace D365.Reports
             }
         }
 
-        private static byte[] BuildExcel(Entity account)
+        private static byte[] BuildXlsx(Entity account)
         {
-            using (var wb = new XLWorkbook())
+            var headers = new[] { "項目", "値" };
+
+            var rows = new List<string[]>
             {
-                var ws = wb.Worksheets.Add("取引先情報");
+                new[] { "取引先名",       account.GetAttributeValue<string>("name")                      ?? string.Empty },
+                new[] { "取引先番号",     account.GetAttributeValue<string>("accountnumber")             ?? string.Empty },
+                new[] { "電話番号",       account.GetAttributeValue<string>("telephone1")                ?? string.Empty },
+                new[] { "メールアドレス", account.GetAttributeValue<string>("emailaddress1")             ?? string.Empty },
+                new[] { "都道府県",       account.GetAttributeValue<string>("address1_stateorprovince")  ?? string.Empty },
+                new[] { "市区町村",       account.GetAttributeValue<string>("address1_city")             ?? string.Empty },
+                new[] { "出力日時 (UTC)", DateTime.UtcNow.ToString("yyyy/MM/dd HH:mm:ss")                               },
+            };
 
-                // --- タイトル ---
-                ws.Cell("A1").Value = "取引先レポート";
-                ws.Cell("A1").Style.Font.Bold = true;
-                ws.Cell("A1").Style.Font.FontSize = 18;
-                ws.Range("A1:B1").Merge();
-
-                ws.Cell("A2").Value = $"出力日時: {DateTime.UtcNow:yyyy/MM/dd HH:mm} (UTC)";
-                ws.Cell("A2").Style.Font.FontColor = XLColor.Gray;
-                ws.Range("A2:B2").Merge();
-
-                // --- ヘッダー行 ---
-                ws.Cell("A4").Value = "項目";
-                ws.Cell("B4").Value = "値";
-                var headerRange = ws.Range("A4:B4");
-                headerRange.Style.Fill.BackgroundColor = XLColor.DarkBlue;
-                headerRange.Style.Font.FontColor       = XLColor.White;
-                headerRange.Style.Font.Bold            = true;
-
-                // --- データ行 ---
-                var rows = new[]
-                {
-                    ("取引先名",       account.GetAttributeValue<string>("name")),
-                    ("取引先番号",     account.GetAttributeValue<string>("accountnumber")),
-                    ("電話番号",       account.GetAttributeValue<string>("telephone1")),
-                    ("メールアドレス", account.GetAttributeValue<string>("emailaddress1")),
-                    ("都道府県",       account.GetAttributeValue<string>("address1_stateorprovince")),
-                    ("市区町村",       account.GetAttributeValue<string>("address1_city")),
-                };
-
-                int row = 5;
-                foreach (var (label, value) in rows)
-                {
-                    ws.Cell(row, 1).Value = label;
-                    ws.Cell(row, 2).Value = value ?? string.Empty;
-
-                    // 偶数行に薄い背景色
-                    if (row % 2 == 0)
-                        ws.Range(row, 1, row, 2).Style.Fill.BackgroundColor = XLColor.LightGray;
-
-                    row++;
-                }
-
-                // --- 罫線・列幅 ---
-                ws.Range(4, 1, row - 1, 2).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                ws.Range(4, 1, row - 1, 2).Style.Border.InsideBorder  = XLBorderStyleValues.Thin;
-                ws.Column(1).Width = 20;
-                ws.Column(2).Width = 35;
-
-                using (var ms = new MemoryStream())
-                {
-                    wb.SaveAs(ms);
-                    return ms.ToArray();
-                }
-            }
+            return SimpleXlsxWriter.Build("取引先情報", headers, rows);
         }
     }
 }
