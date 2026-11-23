@@ -626,7 +626,7 @@ function hudIdle(){
 }
 function nextHtml(c, away){
   const li=laneIndex(c);
-  const when = away==null? `${c.mnum}小節 ${fmtBeat(c.beat)}` : `${c.mnum}小節 ${fmtBeat(c.beat)}（あと ${Math.max(0,away).toFixed(1)}${(S.cs.song.hudSuffix||'拍')}）`;
+  const when = (away==null||away<=0.05)? `${c.mnum}小節 ${fmtBeat(c.beat)}` : `${c.mnum}小節 ${fmtBeat(c.beat)}（あと ${Math.max(0,away).toFixed(1)}${(S.cs.song.hudSuffix||'拍')}）`;
   return `<span class="chip" style="--c:${lanesColor(li)}">${c.p.solfege}</span><div class="txt"><b>つぎは ${c.p.solfege}（${c.p.name}）${c.tremolo?' ゆらす':''}</b><span>${when}</span></div>`;
 }
 let lastNext=null;
