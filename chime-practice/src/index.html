@@ -51,7 +51,7 @@ button{cursor:pointer}
 .modes label:has(input:checked){background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .modehelp{color:var(--muted);font-size:13px;margin:6px 2px 0}
 .stagewrap{background:var(--stage);border-radius:14px;overflow:hidden;position:relative;border:1px solid var(--stage-line)}
-canvas{display:block;width:100%;height:230px;touch-action:pan-y;cursor:grab}
+canvas{display:block;width:100%;height:300px;touch-action:pan-y;cursor:grab}
 canvas:active{cursor:grabbing}
 .banner{position:absolute;left:0;right:0;top:34px;text-align:center;pointer-events:none;font-family:var(--font-d);font-weight:900;font-size:26px;color:var(--stage-fg);opacity:0;transition:opacity .08s}
 .banner.on{opacity:1}
@@ -113,7 +113,7 @@ body.mode-metro .metro{display:block}
 .beat.acc{border-color:var(--chime1)}
 .beat.acc.on{background:var(--chime1)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-@media (max-width:480px){.modes{grid-template-columns:repeat(2,1fr)}.hud{grid-template-columns:1fr}canvas{height:210px}.bigbtn{min-height:120px}}
+@media (max-width:480px){.modes{grid-template-columns:repeat(2,1fr)}.hud{grid-template-columns:1fr}canvas{height:280px}.bigbtn{min-height:120px}}
 </style>
 
 <main>
@@ -244,7 +244,7 @@ function compile(song){
   if(dup){ const names=['低','高']; lanes.forEach((l,i)=>{ l.solfege = (lanes.length===2?names[i]:'')+l.solfege; }); }
   const events = [];
   const cues = [];
-  const melody = [];
+  const melody = [], melMap = new Map();
   song.playOrder.forEach((mnum, idx) => {
     const ms = song.measures[mnum]; if(!ms) return;
     const base = idx*meter;
@@ -268,13 +268,13 @@ function compile(song){
         }
         if(hand==='RH' && ps.length){
           const top = ps.reduce((a,b)=>b.midi>a.midi?b:a);
-          const prev = melody[melody.length-1];
-          if(prev && Math.abs(prev.t-t)<1e-6){ if(top.midi>prev.midi) prev.midi=top.midi; }
-          else melody.push({t, midi:top.midi, dur:n.dur});
+          const key = Math.round(t*100), cur = melMap.get(key);
+          if(!cur || top.midi>cur.midi) melMap.set(key, {t, midi:top.midi, dur:n.dur, sol:top.solfege});
         }
       }
     }
   });
+  melMap.forEach(v=>melody.push(v)); melody.sort((a,b)=>a.t-b.t);
   events.sort((a,b)=>a.t-b.t || (a.mine?1:0)-(b.mine?1:0));
   cues.sort((a,b)=>a.t-b.t || a.midi-b.midi);
   cues.forEach((c,i)=>{ c.id=i; c.p = lanes.find(l=>l.midi===c.midi); });
@@ -702,14 +702,29 @@ function draw(){
     g.fillStyle = '#ffffff'; g.fillText(c.p.solfege,x,y+1);
     g.globalAlpha=1;
   }
-  // メロディ
-  const mn=Math.min(...cs.melody.map(m=>m.midi)), mx=Math.max(...cs.melody.map(m=>m.midi));
-  g.font='600 11px '+getComputedStyle(document.body).fontFamily;
-  g.fillStyle=T.dim; g.textAlign='left'; g.fillText('メロディ',6,melY-4);
+  // メロディ(右手の最も高い音の流れ)。実際の上下がわかるよう縦に広く使い、音名を付ける。
+  const mids=cs.melody.map(m=>m.midi).sort((a,b)=>a-b);
+  const lo=mids[Math.floor(mids.length*0.03)], hi=Math.max(lo+5, mids[Math.min(mids.length-1,Math.floor(mids.length*0.97))]);
+  const yOf=midi=>{ const c=Math.max(lo,Math.min(hi,midi)); return melY+melH-16-(c-lo)/(hi-lo)*(melH-44); };
+  const ff=getComputedStyle(document.body).fontFamily;
+  g.font='600 11px '+ff; g.fillStyle=T.dim; g.textAlign='left'; g.fillText('メロディ',6,melY-2);
+  // 高さの目安線(ドの音)
+  g.strokeStyle=T.line; g.lineWidth=.6; g.setLineDash([2,4]);
+  for(let c=Math.ceil(lo/12)*12; c<=hi; c+=12){ const yy=yOf(c); g.beginPath(); g.moveTo(0,yy); g.lineTo(W,yy); g.stroke(); }
+  g.setLineDash([]);
+  // つなぎ線
+  g.strokeStyle=T.dim; g.lineWidth=1.5; g.beginPath(); let started=false;
   for(const m of cs.melody){
-    const x=X(m.t), w=Math.max(4,m.dur*ppb-3); if(x+w<0||x>W) continue;
-    const y = melY+melH - 4 - (m.midi-mn)/(Math.max(1,mx-mn))*(melH-12);
-    g.globalAlpha = m.t<pos-0.05?.35:.9; g.fillStyle=T.fg; g.fillRect(x,y-2.5,w,5); g.globalAlpha=1;
+    const w=Math.max(4,m.dur*ppb-3), x=X(m.t)+w/2; if(x<-60) continue; if(x>W+60) break;
+    const y=yOf(m.midi); if(started) g.lineTo(x,y); else { g.moveTo(x,y); started=true; }
+  }
+  g.stroke();
+  for(const m of cs.melody){
+    const w=Math.max(4,m.dur*ppb-3), x=X(m.t); if(x+w<0) continue; if(x>W) break;
+    const y=yOf(m.midi), past=m.t<pos-0.05;
+    g.globalAlpha = past?.4:1; g.fillStyle=T.fg; g.fillRect(x,y-3.5,w,7);
+    g.font='700 11px '+ff; g.textAlign='center'; g.fillText(m.sol, x+w/2, y-11);
+    g.globalAlpha=1;
   }
   // いま線
   const flashing = S.waiting;
