@@ -44,14 +44,15 @@ select{background:var(--panel);border:1px solid var(--line);border-radius:8px;pa
 button{cursor:pointer}
 :focus-visible{outline:3px solid var(--chime2);outline-offset:2px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.modes{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .modes label{display:block;text-align:center;border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:8px 4px;font-weight:700;cursor:pointer;font-family:var(--font-d);min-height:44px}
 .modes input{position:absolute;opacity:0;pointer-events:none}
 .modes input:checked+span{color:#fff}
 .modes label:has(input:checked){background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .modehelp{color:var(--muted);font-size:13px;margin:6px 2px 0}
 .stagewrap{background:var(--stage);border-radius:14px;overflow:hidden;position:relative;border:1px solid var(--stage-line)}
-canvas{display:block;width:100%;height:230px;touch-action:none}
+canvas{display:block;width:100%;height:230px;touch-action:pan-y;cursor:grab}
+canvas:active{cursor:grabbing}
 .banner{position:absolute;left:0;right:0;top:34px;text-align:center;pointer-events:none;font-family:var(--font-d);font-weight:900;font-size:26px;color:var(--stage-fg);opacity:0;transition:opacity .08s}
 .banner.on{opacity:1}
 .hud{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center}
@@ -98,8 +99,21 @@ canvas{display:block;width:100%;height:230px;touch-action:none}
 .m.dim{opacity:.55}
 .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;color:var(--muted);font-size:12px}
 .foot{color:var(--muted);font-size:12px}
+body.mode-metro .songonly{display:none!important}
+.metro{display:none}
+body.mode-metro .metro{display:block}
+.seek{display:flex;gap:8px;align-items:center}
+.seek input[type=range]{flex:1;min-width:0;min-height:36px}
+.seek .ghost{padding:8px 10px;white-space:nowrap}
+.bignum{font-family:var(--font-d);font-weight:900;font-size:68px;line-height:1.1;text-align:center;font-variant-numeric:tabular-nums}
+.bignum small{font-size:15px;font-weight:500;color:var(--muted);margin-left:6px}
+.beats{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:10px 0 4px}
+.beat{width:54px;height:54px;border-radius:50%;border:3px solid var(--line);background:var(--panel)}
+.beat.on{background:var(--chime2);border-color:var(--chime2)}
+.beat.acc{border-color:var(--chime1)}
+.beat.acc.on{background:var(--chime1)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-@media (max-width:480px){.hud{grid-template-columns:1fr}canvas{height:210px}.bigbtn{min-height:120px}}
+@media (max-width:480px){.modes{grid-template-columns:repeat(2,1fr)}.hud{grid-template-columns:1fr}canvas{height:210px}.bigbtn{min-height:120px}}
 </style>
 
 <main>
@@ -116,49 +130,69 @@ canvas{display:block;width:100%;height:230px;touch-action:none}
       <label><input type="radio" name="mode" value="listen"><span>① 聴く</span></label>
       <label><input type="radio" name="mode" value="step"><span>② ステップ</span></label>
       <label><input type="radio" name="mode" value="timing"><span>③ タイミング</span></label>
+      <label><input type="radio" name="mode" value="metro"><span>④ メトロノーム</span></label>
     </div>
     <p class="modehelp" id="modeHelp"></p>
   </div>
 
-  <div class="stagewrap">
+  <div class="stagewrap songonly">
     <canvas id="stage" aria-label="自分の音が流れてくる画面"></canvas>
     <div class="banner" id="banner">いま！</div>
   </div>
+  <div class="seek songonly">
+    <button class="ghost" id="seekBack" aria-label="1小節戻る">◀ 1小節</button>
+    <input type="range" id="seek" min="0" max="100" step="1" value="0" aria-label="曲の位置（小節）">
+    <button class="ghost" id="seekFwd" aria-label="1小節進む">1小節 ▶</button>
+  </div>
 
-  <div class="card hud">
+  <div class="card metro" id="metroCard">
+    <div class="bignum"><span id="metroBpm">100</span><small>♩/分</small></div>
+    <div class="beats" id="beats" aria-hidden="true"></div>
+    <div class="row" style="justify-content:center;margin-top:10px">
+      <button class="ghost" id="bpmM5">−5</button><button class="ghost" id="bpmM1">−1</button>
+      <button class="ghost" id="bpmP1">＋1</button><button class="ghost" id="bpmP5">＋5</button>
+      <button class="ghost" id="tap">タップでテンポ</button>
+    </div>
+    <div class="row" style="justify-content:center;margin-top:10px">
+      <label class="ctl"><span>拍子（1小節の拍数）</span><select id="metroMeter"><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option></select></label>
+      <label class="tg"><input type="checkbox" id="metroAccent" checked><span>1拍めを強く</span></label>
+    </div>
+  </div>
+
+  <div class="card hud songonly">
     <div class="pos" id="pos">— <small id="posSub">停止中</small></div>
     <div class="next" id="next"></div>
   </div>
 
-  <div class="chimes" id="chimes"></div>
-  <div class="feedback" id="feedback" aria-live="polite"></div>
+  <div class="chimes songonly" id="chimes"></div>
+  <div class="feedback songonly" id="feedback" aria-live="polite"></div>
 
   <div class="card">
     <div class="row">
       <button class="primary" id="btnPlay">▶ はじめる</button>
       <button class="ghost" id="btnStop">■ とめる</button>
-      <label class="ctl"><span>ここから</span><select id="startSel"></select></label>
-      <label class="tg"><input type="checkbox" id="loopOn"><span>ここまでをくり返す</span></label>
-      <label class="ctl"><span>終わりの小節</span><select id="endSel"></select></label>
+      <label class="ctl songonly"><span>ここから</span><select id="startSel"></select></label>
+      <label class="tg songonly"><input type="checkbox" id="loopOn"><span>ここまでをくり返す</span></label>
+      <label class="ctl songonly"><span>終わりの小節</span><select id="endSel"></select></label>
     </div>
     <div class="grid2" style="margin-top:12px">
-      <label class="ctl"><span>テンポ <b id="bpmVal"></b></span><input type="range" id="bpm" min="40" max="150" step="1"></label>
-      <label class="ctl"><span>判定のずれ補正 <b id="offVal"></b>（イヤホンで遅れるときに）</span><input type="range" id="off" min="-150" max="250" step="10" value="0"></label>
-      <label class="tg"><input type="checkbox" id="optCount" checked><span>はじめに1小節ぶんカウント</span></label>
-      <label class="tg"><input type="checkbox" id="optMetro"><span>メトロノーム（拍のクリック）</span></label>
-      <label class="tg"><input type="checkbox" id="optOthers" checked><span>ほかの人の音を鳴らす</span></label>
+      <label class="ctl"><span>テンポ <b id="bpmVal"></b></span><input type="range" id="bpm" min="30" max="200" step="1"></label>
+      <label class="ctl songonly"><span>判定のずれ補正 <b id="offVal"></b>（イヤホンで遅れるときに）</span><input type="range" id="off" min="-150" max="250" step="10" value="0"></label>
+      <label class="tg songonly"><input type="checkbox" id="optCount" checked><span>はじめに1小節ぶんカウント</span></label>
+      <label class="tg songonly"><input type="checkbox" id="optMetro"><span>メトロノーム（拍のクリック）</span></label>
+      <label class="tg songonly"><input type="checkbox" id="optOthers" checked><span>ほかの人の音を鳴らす</span></label>
     </div>
   </div>
 
-  <div class="card result" id="result" aria-live="polite"></div>
+  <div class="card result songonly" id="result" aria-live="polite"></div>
 
-  <div class="card">
+  <div class="card songonly">
     <h2>あなたの鳴らす場所マップ</h2>
     <div class="legend" id="legend"></div>
     <div class="map" id="map"></div>
   </div>
 
-  <p class="foot">タップ、またはキーボード（スペース＝いまの音 / F・J＝左・右のチャイム）で鳴らせます。小節カードを押すと、そこから練習を始められます。</p>
+  <p class="foot">タップ、またはキーボード（スペース＝いまの音 / F・J＝左・右のチャイム / ←→＝1小節移動）で操作できます。譜面は指やマウスでドラッグすると前後に動きます。小節カードを押すと、そこから練習を始められます。</p>
 </main>
 
 <script>
@@ -174,7 +208,8 @@ const SEMI = {C:0,D:2,E:4,F:5,G:7,A:9,B:11};
 const MODE_HELP = {
   listen:'まず曲全体を聴いて流れをつかみます。あなたの音は光って鳴ります。',
   step:'あなたの音の直前で曲が止まります。その音のボタンを押すと続きが流れます。',
-  timing:'曲は止まりません。あなたの音のタイミングでボタンを押して、ずれを確かめます。'
+  timing:'曲は止まりません。あなたの音のタイミングでボタンを押して、ずれを確かめます。',
+  metro:'メトロノームだけを鳴らします。テンポと拍子を決めて、練習の土台にします。'
 };
 
 /* ---------- 保存 ---------- */
@@ -273,8 +308,8 @@ function strike(midi, vol=.5, soft=false){
     o.start(t); o.stop(t+decay*d*1.6+.1);
   }
 }
-function click(accent){
-  const c = audio(); const t=c.currentTime;
+function click(accent, when){
+  const c = audio(); const t=when||c.currentTime;
   const o=c.createOscillator(), a=c.createGain();
   o.type='square'; o.frequency.value = accent?1500:1000;
   a.gain.setValueAtTime(.0001,t); a.gain.exponentialRampToValueAtTime(accent?.22:.13,t+.002);
@@ -287,7 +322,7 @@ const S = {
   songs: window.SONGS, cs:null, mode:store.get('mode','listen'),
   running:false, waiting:false, pending:[], pos:0, startPos:0, evIdx:0, last:0,
   bpm:100, offMs:store.get('off',0), timer:null, raf:0,
-  loopEnd:null, loopStart:0, stats:null, flash:{}, bannerUntil:0, finished:false
+  loopEnd:null, loopStart:0, stats:null, flash:{}, bannerUntil:0, finished:false, startIdx:0, cursor:0, scrubbing:false
 };
 const lanesColor = i => `var(--chime${i+1})`;
 
@@ -313,8 +348,10 @@ function loadSong(id){
   $('startSel').innerHTML = uniq.map(u=>`<option value="${u.i}">${u.m}小節</option>`).join('');
   $('endSel').innerHTML = uniq.map(u=>`<option value="${u.i}">${u.m}小節</option>`).join('');
   $('endSel').selectedIndex = uniq.length-1;
+  S.startIdx=0; S.cursor=0; $('seek').max=song.playOrder.length-1;
   buildChimes(); buildMap(); resetCues(0);
   hudIdle();
+  if(S.mode==='metro') setBpm(store.get('bpm.metro',100));
 }
 function buildChimes(){
   const box = $('chimes'); box.style.setProperty('--n', S.cs.lanes.length);
@@ -355,7 +392,7 @@ function buildMap(){
       // 同じ小節の2回目以降(くり返し)にも同じ表示を使うため、最初の idx だけ登録
       (chipEls[c.id] = chipEls[c.id] || []).push(e);
     }
-    d.addEventListener('click', ()=>{ $('startSel').value = idx; markStart(); window.scrollTo({top:0,behavior:'smooth'}); });
+    d.addEventListener('click', ()=>{ setStart(idx); window.scrollTo({top:0,behavior:'smooth'}); });
     map.appendChild(d);
   }
   // 2回目の出現(くり返し)の cue も同じ見た目の要素に反映できるよう m→要素の対応を作る
@@ -368,8 +405,8 @@ function buildMap(){
   markStart();
 }
 function markStart(){
-  const v = +$('startSel').value;
-  document.querySelectorAll('.m').forEach(m=>m.classList.toggle('on', +m.dataset.idx===v));
+  const m = S.cs.song.playOrder[S.startIdx];
+  document.querySelectorAll('.m').forEach(e=>e.classList.toggle('on', +e.dataset.m===m));
 }
 function paintChip(cue){
   const els = S.chipByMeasureBeat[cue.id] || [];
@@ -384,7 +421,7 @@ function resetCues(fromPos){
 function start(){
   audio();
   const cs = S.cs;
-  const startIdx = +$('startSel').value;
+  const startIdx = S.startIdx;
   const startBeat = startIdx*cs.meter;
   const count = $('optCount').checked;
   S.startPos = startBeat;
@@ -413,7 +450,8 @@ function start(){
 }
 function stop(showResult){
   if(!S.running && !showResult) { hudIdle(); return; }
-  S.running=false; S.waiting=false; clearInterval(S.timer);
+  S.running=false; S.waiting=false; S.scrubbing=false; clearInterval(S.timer);
+  S.cursor=S.startIdx*S.cs.meter;
   $('btnPlay').textContent='▶ はじめる';
   lockScreen(false);
   if(showResult) showResults();
@@ -449,7 +487,7 @@ function tick(){
   if(!S.running) return;
   const now = performance.now();
   let dt = Math.min(.1,(now-S.last)/1000); S.last = now;
-  if(S.waiting) return;
+  if(S.waiting||S.scrubbing) return;
   const cs = S.cs, spb = 60/S.bpm;
   let np = S.pos + dt/spb;
   // クリック
@@ -569,8 +607,10 @@ function showResults(){
 
 /* ---------- 画面表示 ---------- */
 function hudIdle(){
-  $('pos').firstChild.nodeValue='—'; $('posSub').textContent='停止中';
-  const cs=S.cs; const first = cs.cues.find(c=>c.idx>=+$('startSel').value);
+  const cs=S.cs; const order=cs.song.playOrder;
+  const mi=Math.max(0,Math.min(Math.floor(S.cursor/cs.meter+1e-6),order.length-1));
+  $('pos').firstChild.nodeValue=order[mi]+'小節'; $('posSub').textContent='ここから始まります';
+  const first = cs.cues.find(c=>c.t>=S.cursor-1e-6);
   $('next').innerHTML = first? nextHtml(first, null) : '';
   clearTargets();
   const ban=$('banner'); ban.classList.remove('on'); ban.textContent='';
@@ -616,11 +656,12 @@ function theme(){
   return themeCache;
 }
 function draw(){
+  if(S.mode==='metro') return;
   const T=theme(), cs=S.cs; if(!cs||!W) return;
   g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
   g.fillStyle=T.stage; g.fillRect(0,0,W,H);
-  const pos = S.running? S.pos : (+$('startSel').value)*cs.meter;
-  const nowX = Math.min(W*.24,110), ppb = Math.max(46,Math.min(84,W/9));
+  const pos = S.running? S.pos : S.cursor;
+  const nowX = Math.min(W*.24,110), ppb = ppbNow();
   const X = t => nowX + (t-pos)*ppb;
   const top=30, nl=cs.lanes.length, laneH = nl>2?44:52, lanesY=top+8, melY = lanesY+nl*laneH+10, melH = Math.max(34,H-melY-8);
   g.font='600 12px '+getComputedStyle(document.body).fontFamily; g.textBaseline='middle';
@@ -683,15 +724,146 @@ function draw(){
 }
 function frame(){
   draw(); if(S.running) hud();
+  if(S.cs && S.mode!=='metro' && !seekDrag){ const v=Math.max(0,Math.min(Math.floor((S.running?S.pos:S.cursor)/S.cs.meter+1e-6),S.cs.song.playOrder.length-1)); if(+$('seek').value!==v) $('seek').value=v; }
+  if(M.running && ctx){ const t=ctx.currentTime; let cur=null; while(M.queue.length && M.queue[0].t<=t) cur=M.queue.shift(); if(cur) litBeat(cur.beat); }
   S.raf=requestAnimationFrame(frame);
+}
+
+
+/* ---------- テンポ・開始位置・譜面の移動 ---------- */
+function setBpm(v){
+  v=Math.max(30,Math.min(200,Math.round(v))); S.bpm=v;
+  $('bpm').value=v; $('bpmVal').textContent='♩='+v; $('metroBpm').textContent=v;
+  store.set(S.mode==='metro'?'bpm.metro':'bpm.'+S.cs.song.id, v);
+}
+function ppbNow(){ return Math.max(46,Math.min(84,W/9)); }
+function firstIndexOf(m){ return S.cs.song.playOrder.indexOf(m); }
+function setStart(idx){
+  idx=Math.max(0,Math.min(idx,S.cs.song.playOrder.length-1));
+  S.startIdx=idx; S.cursor=idx*S.cs.meter;
+  const f=firstIndexOf(S.cs.song.playOrder[idx]); if($('startSel').value!=String(f)) $('startSel').value=f;
+  markStart(); if(!S.running) hudIdle();
+}
+function seekTo(b, commit){
+  const cs=S.cs, n=cs.song.playOrder.length;
+  b=Math.max(0,Math.min(cs.total-0.001,b));
+  if(S.running){
+    S.pos=b; S.waiting=false; S.pending=[]; clearTargets(); S.bannerUntil=0;
+    const bn=$('banner'); bn.classList.remove('on'); bn.textContent='';
+    S.evIdx=cs.events.findIndex(e=>e.t>=b-1e-6); if(S.evIdx<0) S.evIdx=cs.events.length;
+    S.lastInt=Math.floor(b-1e-6); S.countUntil=Math.min(S.countUntil,b);
+    cs.cues.forEach(c=>{ if(c.t>=b-1e-6){ c.state='pending'; c.played=false; c.delta=null; paintChip(c); } });
+    if(S.loopEnd!=null && b>=S.loopEnd) S.loopEnd=null;
+  } else {
+    S.cursor=b;
+    if(commit) setStart(Math.min(Math.round(b/cs.meter),n-1)); else hudIdle();
+  }
+}
+function curPos(){ return S.running? S.pos : S.cursor; }
+function seekMeasures(d){
+  const m=S.cs.meter, p=curPos();
+  const t = d<0 ? (Math.ceil(p/m-1e-6)-1)*m : (Math.floor(p/m+1e-6)+1)*m;
+  seekTo(t,true);
+}
+let seekDrag=false;
+(function(){
+  let drag=null, wheelT=null;
+  cv.addEventListener('pointerdown', e=>{
+    if(S.mode==='metro') return;
+    try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+    drag={x:e.clientX,start:curPos(),moved:false};
+  });
+  cv.addEventListener('pointermove', e=>{
+    if(!drag) return;
+    const dx=e.clientX-drag.x;
+    if(!drag.moved && Math.abs(dx)<4) return;
+    if(!drag.moved){ drag.moved=true; if(S.running) S.scrubbing=true; }
+    seekTo(drag.start-dx/ppbNow(), false);
+  });
+  const end=()=>{
+    if(!drag) return; const d=drag; drag=null;
+    if(S.running){ S.scrubbing=false; S.last=performance.now(); }
+    else if(d.moved) seekTo(S.cursor,true);
+  };
+  cv.addEventListener('pointerup',end); cv.addEventListener('pointercancel',end);
+  cv.addEventListener('wheel', e=>{
+    if(S.mode==='metro') return; e.preventDefault();
+    seekTo(curPos()+((Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY)/ppbNow()), false);
+    clearTimeout(wheelT); wheelT=setTimeout(()=>{ if(!S.running) seekTo(S.cursor,true); },250);
+  },{passive:false});
+})();
+
+/* ---------- メトロノーム専用モード ---------- */
+const M={running:false,timer:null,next:0,beat:0,queue:[],meter:+store.get('metroMeter',4)||4,lit:-1,taps:[]};
+function buildBeats(){
+  const box=$('beats'); box.innerHTML='';
+  for(let i=0;i<M.meter;i++){ const d=document.createElement('div'); d.className='beat'+(i===0?' acc':''); box.appendChild(d); }
+  M.lit=-1;
+}
+function litBeat(i){
+  const kids=$('beats').children;
+  if(M.lit>=0 && kids[M.lit]) kids[M.lit].classList.remove('on');
+  if(i>=0 && kids[i]) kids[i].classList.add('on');
+  M.lit=i;
+}
+function metroSched(){
+  const c=audio();
+  while(M.next < c.currentTime+0.15){
+    click($('metroAccent').checked && M.beat===0, M.next);
+    M.queue.push({t:M.next,beat:M.beat});
+    M.next += 60/S.bpm; M.beat=(M.beat+1)%M.meter;
+  }
+}
+function metroStart(){
+  const c=audio(); M.running=true; M.beat=0; M.next=c.currentTime+0.15; M.queue=[];
+  clearInterval(M.timer); M.timer=setInterval(metroSched,25); metroSched();
+  $('btnPlay').textContent='■ とめる'; lockScreen(true);
+}
+function metroStop(){
+  if(!M.running) return;
+  M.running=false; clearInterval(M.timer); M.queue=[]; litBeat(-1);
+  if(S.mode==='metro') $('btnPlay').textContent='▶ スタート';
+  lockScreen(false);
+}
+function metroToggle(){ M.running? metroStop() : metroStart(); }
+function setMode(m, init){
+  if(!init && S.running) stop(false);
+  metroStop();
+  S.mode=m; store.set('mode',m);
+  $('modeHelp').textContent=MODE_HELP[m];
+  document.body.classList.toggle('mode-metro', m==='metro');
+  if(m==='metro'){ setBpm(store.get('bpm.metro',100)); buildBeats(); $('btnPlay').textContent='▶ スタート'; }
+  else { setBpm(store.get('bpm.'+S.cs.song.id, S.cs.song.tempo||100)); $('btnPlay').textContent='▶ はじめる'; fit(); }
+  document.querySelectorAll('input[name=mode]').forEach(r=>{ r.checked = r.value===m; });
+}
+function bindExtra(){
+  $('seekBack').addEventListener('click',()=>seekMeasures(-1));
+  $('seekFwd').addEventListener('click',()=>seekMeasures(1));
+  const sk=$('seek');
+  sk.addEventListener('pointerdown',()=>{ seekDrag=true; });
+  const skEnd=()=>{ seekDrag=false; };
+  sk.addEventListener('pointerup',skEnd); sk.addEventListener('pointercancel',skEnd); sk.addEventListener('blur',skEnd);
+  sk.addEventListener('input',()=>seekTo(+sk.value*S.cs.meter,true));
+  $('bpmM5').addEventListener('click',()=>setBpm(S.bpm-5)); $('bpmM1').addEventListener('click',()=>setBpm(S.bpm-1));
+  $('bpmP1').addEventListener('click',()=>setBpm(S.bpm+1)); $('bpmP5').addEventListener('click',()=>setBpm(S.bpm+5));
+  $('tap').addEventListener('pointerdown',e=>{
+    e.preventDefault(); const now=performance.now();
+    if(M.taps.length && now-M.taps[M.taps.length-1]>2000) M.taps=[];
+    M.taps.push(now); if(M.taps.length>5) M.taps.shift();
+    if(M.taps.length>=2) setBpm(60000/((M.taps[M.taps.length-1]-M.taps[0])/(M.taps.length-1)));
+  });
+  $('metroMeter').value=String(M.meter);
+  $('metroMeter').addEventListener('change',e=>{ M.meter=+e.target.value; store.set('metroMeter',M.meter); M.beat=0; buildBeats(); });
+  const ma=$('metroAccent'); const v=store.get('metroAccent',null); if(v!==null) ma.checked=v;
+  ma.addEventListener('change',()=>store.set('metroAccent',ma.checked));
 }
 
 /* ---------- 入力 ---------- */
 function bindUI(){
-  $('btnPlay').addEventListener('click', ()=>start());
-  $('btnStop').addEventListener('click', ()=>{ stop(false); setFeedback(''); });
-  $('startSel').addEventListener('change', markStart);
-  $('bpm').addEventListener('input', e=>{ S.bpm=+e.target.value; $('bpmVal').textContent='♩='+S.bpm; store.set('bpm.'+S.cs.song.id,S.bpm); });
+  $('btnPlay').addEventListener('click', ()=> S.mode==='metro' ? metroToggle() : start());
+  $('btnStop').addEventListener('click', ()=>{ if(S.mode==='metro'){ metroStop(); return; } stop(false); setFeedback(''); });
+  $('startSel').addEventListener('change', ()=>setStart(+$('startSel').value));
+  $('bpm').addEventListener('input', e=>setBpm(+e.target.value));
   $('off').addEventListener('input', e=>{ S.offMs=+e.target.value; $('offVal').textContent=(S.offMs>=0?'+':'')+S.offMs+'ms'; store.set('off',S.offMs); });
   for(const id of ['optCount','optMetro','optOthers','loopOn']){
     const el=$(id); const v=store.get(id,null); if(v!==null) el.checked=v;
@@ -699,13 +871,16 @@ function bindUI(){
   }
   document.querySelectorAll('input[name=mode]').forEach(r=>{
     r.checked = r.value===S.mode;
-    r.addEventListener('change',()=>{ S.mode=r.value; store.set('mode',S.mode); $('modeHelp').textContent=MODE_HELP[S.mode]; if(S.running) stop(false); });
+    r.addEventListener('change',()=>setMode(r.value));
   });
   $('modeHelp').textContent=MODE_HELP[S.mode];
   $('offVal').textContent=(S.offMs>=0?'+':'')+S.offMs+'ms'; $('off').value=S.offMs;
   document.addEventListener('keydown', e=>{
     if(e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.target.tagName==='SELECT' || e.target.tagName==='INPUT') return;
     const k=e.key.toLowerCase();
+    if(S.mode==='metro'){ if(e.key===' '){ e.preventDefault(); metroToggle(); } return; }
+    if(e.key==='ArrowLeft'){ e.preventDefault(); seekMeasures(-1); return; }
+    if(e.key==='ArrowRight'){ e.preventDefault(); seekMeasures(1); return; }
     if(e.key===' '){
       e.preventDefault();
       let midi=null;
@@ -718,6 +893,7 @@ function bindUI(){
       press(S.keyMap[k]);
     }
   });
+  bindExtra();
   document.addEventListener('keyup', e=>{ if(e.key===' ' && e.target.tagName==='BUTTON') e.preventDefault(); });
   document.addEventListener('visibilitychange', ()=>{ if(document.hidden && S.running) { stop(false); setFeedback('画面が隠れたので止めました'); } });
   const sel=$('songSel'); sel.innerHTML=S.songs.map(s=>`<option value="${s.id}">${s.title}</option>`).join('');
@@ -726,7 +902,7 @@ function bindUI(){
 }
 if(!S.songs.length){ document.body.innerHTML='<p style="padding:20px">曲データがありません。</p>'; return; }
 S.countUntil=0; S.lastInt=0;
-bindUI(); loadSong($('songSel').value); fit(); frame();
+bindUI(); loadSong($('songSel').value); setMode(S.mode,true); fit(); frame();
 window.__chime = {S, compile, parsePitch}; // 検証用
 })();
 </script>
