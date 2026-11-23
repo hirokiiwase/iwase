@@ -144,7 +144,7 @@ canvas{display:block;width:100%;height:230px;touch-action:none}
     <div class="grid2" style="margin-top:12px">
       <label class="ctl"><span>テンポ <b id="bpmVal"></b></span><input type="range" id="bpm" min="40" max="150" step="1"></label>
       <label class="ctl"><span>判定のずれ補正 <b id="offVal"></b>（イヤホンで遅れるときに）</span><input type="range" id="off" min="-150" max="250" step="10" value="0"></label>
-      <label class="tg"><input type="checkbox" id="optCount" checked><span>はじめに4拍カウント</span></label>
+      <label class="tg"><input type="checkbox" id="optCount" checked><span>はじめに1小節ぶんカウント</span></label>
       <label class="tg"><input type="checkbox" id="optMetro"><span>メトロノーム（拍のクリック）</span></label>
       <label class="tg"><input type="checkbox" id="optOthers" checked><span>ほかの人の音を鳴らす</span></label>
     </div>
@@ -253,7 +253,8 @@ function audio(){
     master = ctx.createGain(); master.gain.value=.85;
     master.connect(comp); comp.connect(ctx.destination);
   }
-  if(ctx.state==='suspended') ctx.resume();
+  if(ctx.state!=='running') { try{ ctx.resume(); }catch(e){} }
+  try{ if(navigator.audioSession) navigator.audioSession.type='playback'; }catch(e){}
   return ctx;
 }
 function strike(midi, vol=.5, soft=false){
@@ -418,7 +419,7 @@ function stop(showResult){
   if(showResult) showResults();
   hudIdle();
 }
-function finishSong(){ S.finished=true; stop(S.mode!=='listen'); setFeedback('おしまい。おつかれさまです！'); }
+function finishSong(){ if(S.mode==='timing') S.cs.cues.forEach(c=>{ if(c.state==='pending') markMiss(c); }); S.finished=true; stop(S.mode!=='listen'); setFeedback('おしまい。おつかれさまです！'); }
 let wake=null;
 async function lockScreen(on){
   try{
@@ -466,7 +467,8 @@ function tick(){
     const nc = cs.cues.find(c=>c.state==='pending' && c.t>=S.pos-1e-6 && c.t>=S.startPos-1e-6);
     if(nc && nc.t <= np+1e-9 && np>=S.countUntil-1e-9) stopAt = nc.t;
   }
-  const limit = stopAt!==null ? stopAt-1e-6 : np;
+  let limit = stopAt!==null ? stopAt-1e-6 : np;
+  if(S.loopEnd!=null) limit = Math.min(limit, S.loopEnd-1e-6);
   while(S.evIdx<cs.events.length && cs.events[S.evIdx].t<=limit){ fire(cs.events[S.evIdx++]); }
   if(stopAt!==null){
     S.pos = stopAt; S.waiting=true;
@@ -477,21 +479,27 @@ function tick(){
   S.pos = np;
   // タイミング: 見逃し判定
   if(S.mode==='timing'){
+    const pbNow = S.pos - (S.offMs/1000)*(S.bpm/60);
     for(const c of cs.cues){
-      if(c.state==='pending' && c.t + 0.5 < S.pos){ c.state='miss'; S.stats.miss++; paintChip(c); setFeedback(`見逃し: ${c.p.solfege}（${c.mnum}小節 ${fmtBeat(c.beat)}）`,'bad'); }
+      if(c.state==='pending' && c.t + 0.6 < pbNow) markMiss(c);
     }
   }
   // ループ/終了
   if(S.loopEnd!=null && S.pos>=S.loopEnd){
+    if(S.mode==='timing') cs.cues.forEach(c=>{ if(c.state==='pending') markMiss(c); });
     S.pos = S.loopStart; S.lastInt = Math.floor(S.pos-1e-6);
     S.evIdx = cs.events.findIndex(e=>e.t>=S.loopStart-1e-6);
-    cs.cues.forEach(c=>{ if(c.t>=S.loopStart-1e-6 && c.t<S.loopEnd) { if(c.state==='hit'||c.state==='near'||c.state==='miss'){ if(S.mode==='listen') c.state='pending'; else { c.state='pending'; } } c.played=false; } });
+    cs.cues.forEach(c=>{ if(c.t>=S.loopStart-1e-6 && c.t<S.loopEnd) { c.state='pending'; c.played=false; c.delta=null; } });
     resetChips();
   } else if(S.loopEnd==null && S.pos >= cs.total+1.5){
     finishSong();
   }
 }
 
+function markMiss(c){
+  c.state='miss'; S.stats.miss++; paintChip(c);
+  setFeedback(`見逃し: ${c.p.solfege}（${c.mnum}小節 ${fmtBeat(c.beat)}）`,'bad');
+}
 function judgeDeltaMs(deltaBeats){ return deltaBeats*60000/S.bpm; }
 
 function press(midi){
@@ -565,6 +573,7 @@ function hudIdle(){
   const cs=S.cs; const first = cs.cues.find(c=>c.idx>=+$('startSel').value);
   $('next').innerHTML = first? nextHtml(first, null) : '';
   clearTargets();
+  const ban=$('banner'); ban.classList.remove('on'); ban.textContent='';
 }
 function nextHtml(c, away){
   const li=laneIndex(c);
@@ -695,7 +704,7 @@ function bindUI(){
   $('modeHelp').textContent=MODE_HELP[S.mode];
   $('offVal').textContent=(S.offMs>=0?'+':'')+S.offMs+'ms'; $('off').value=S.offMs;
   document.addEventListener('keydown', e=>{
-    if(e.repeat || e.target.tagName==='SELECT' || e.target.tagName==='INPUT') return;
+    if(e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.target.tagName==='SELECT' || e.target.tagName==='INPUT') return;
     const k=e.key.toLowerCase();
     if(e.key===' '){
       e.preventDefault();
@@ -709,6 +718,8 @@ function bindUI(){
       press(S.keyMap[k]);
     }
   });
+  document.addEventListener('keyup', e=>{ if(e.key===' ' && e.target.tagName==='BUTTON') e.preventDefault(); });
+  document.addEventListener('visibilitychange', ()=>{ if(document.hidden && S.running) { stop(false); setFeedback('画面が隠れたので止めました'); } });
   const sel=$('songSel'); sel.innerHTML=S.songs.map(s=>`<option value="${s.id}">${s.title}</option>`).join('');
   sel.value = store.get('song', S.songs[0].id); if(!sel.value) sel.selectedIndex=0;
   sel.addEventListener('change',()=>{ stop(false); loadSong(sel.value); });
