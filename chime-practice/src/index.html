@@ -178,7 +178,7 @@ body.mode-metro .metro{display:block}
     <div class="grid2" style="margin-top:12px">
       <label class="ctl"><span>テンポ <b id="bpmVal"></b></span><input type="range" id="bpm" min="30" max="200" step="1"></label>
       <label class="ctl songonly"><span>判定のずれ補正 <b id="offVal"></b>（イヤホンで遅れるときに）</span><input type="range" id="off" min="-150" max="250" step="10" value="0"></label>
-      <label class="tg songonly"><input type="checkbox" id="optCount" checked><span>はじめに1小節ぶんカウント</span></label>
+      <label class="tg songonly"><input type="checkbox" id="optCount" checked><span>はじめにカウントを入れる</span></label>
       <label class="tg songonly"><input type="checkbox" id="optMetro"><span>メトロノーム（拍のクリック）</span></label>
       <label class="tg songonly"><input type="checkbox" id="optOthers" checked><span>ほかの人の音を鳴らす</span></label>
     </div>
@@ -219,13 +219,15 @@ const store = {
 };
 
 /* ---------- 音名 ---------- */
-function parsePitch(s, keyFlats){
+function parsePitch(s, key){
+  key = Array.isArray(key) ? {flats:key,sharps:[]} : (key||{flats:[],sharps:[]});
   const m = /^([A-G])([♭♯♮b#]?)(-?\d)$/.exec(s);
   if(!m) throw new Error('bad pitch '+s);
   let [, L, acc, oct] = m;
   let semi = SEMI[L];
   if(acc==='♭'||acc==='b') semi--; else if(acc==='♯'||acc==='#') semi++;
-  else if(acc==='' && keyFlats.includes(L)) { semi--; acc='♭'; }
+  else if(acc==='' && key.flats.includes(L)) { semi--; acc='♭'; }
+  else if(acc==='' && key.sharps.includes(L)) { semi++; acc='♯'; }
   const midi = 12*(parseInt(oct,10)+1)+semi;
   const shown = (acc==='♮'?'♮':acc==='♭'?'♭':acc==='♯'?'♯':'');
   return {midi, letter:L, acc, oct:+oct, name:L+shown+oct, solfege:SOLFEGE[L]+shown};
@@ -234,10 +236,12 @@ function parsePitch(s, keyFlats){
 /* ---------- 曲の展開 ---------- */
 function compile(song){
   const meter = song.meter || 4;
-  const kf = song.keyFlats || [];
+  const kf = {flats:song.keyFlats||[], sharps:song.keySharps||[]};
   const mine = song.myChimes.map(p => parsePitch(p, kf));
   const myMidi = new Set(mine.map(p => p.midi));
   const lanes = [...mine].sort((a,b)=>a.midi-b.midi);
+  const dup = new Set(lanes.map(l=>l.solfege)).size < lanes.length;
+  if(dup){ const names=['低','高']; lanes.forEach((l,i)=>{ l.solfege = (lanes.length===2?names[i]:'')+l.solfege; }); }
   const events = [];
   const cues = [];
   const melody = [];
@@ -273,8 +277,9 @@ function compile(song){
   });
   events.sort((a,b)=>a.t-b.t || (a.mine?1:0)-(b.mine?1:0));
   cues.sort((a,b)=>a.t-b.t || a.midi-b.midi);
-  cues.forEach((c,i)=>c.id=i);
-  return {song, meter, mine, lanes, events, cues, melody, total: song.playOrder.length*meter};
+  cues.forEach((c,i)=>{ c.id=i; c.p = lanes.find(l=>l.midi===c.midi); });
+  const pulse = song.pulse || 1;
+  return {song, meter, pulse, countIn: song.countIn || meter, mine, lanes, events, cues, melody, total: song.playOrder.length*meter};
 }
 
 /* ---------- 音 ---------- */
@@ -328,9 +333,10 @@ const lanesColor = i => `var(--chime${i+1})`;
 
 function fmtBeat(b){
   const i = Math.floor(b+1e-6), f = b-i;
-  if(Math.abs(f)<1e-6) return `${i}拍め`;
-  if(Math.abs(f-.5)<1e-6) return `${i}拍めの裏`;
-  return `${i}拍め+${f.toFixed(2)}`;
+  const sf = (S.cs&&S.cs.song.beatSuffix)||'拍め';
+  if(Math.abs(f)<1e-6) return `${i}${sf}`;
+  if(Math.abs(f-.5)<1e-6) return `${i}${sf}の裏`;
+  return `${i}${sf}+${f.toFixed(2)}`;
 }
 function laneIndex(cue){ return S.cs.lanes.findIndex(p=>p.midi===cue.midi); }
 
@@ -342,7 +348,7 @@ function loadSong(id){
   S.bpm = store.get('bpm.'+song.id, song.tempo||100);
   $('songTitle').textContent = song.title;
   $('songSub').textContent = [song.subtitle, song.arranger].filter(Boolean).join(' ／ ');
-  $('bpm').value = S.bpm; $('bpmVal').textContent = '♩='+S.bpm;
+  setBpm(S.bpm);
   // 開始/終了セレクト
   const uniq = []; song.playOrder.forEach((m,i)=>{ if(!uniq.some(u=>u.m===m)) uniq.push({m,i}); });
   $('startSel').innerHTML = uniq.map(u=>`<option value="${u.i}">${u.m}小節</option>`).join('');
@@ -425,7 +431,7 @@ function start(){
   const startBeat = startIdx*cs.meter;
   const count = $('optCount').checked;
   S.startPos = startBeat;
-  S.pos = startBeat - (count? cs.meter : 0);
+  S.pos = startBeat - (count? cs.countIn : 0);
   S.countUntil = startBeat;
   S.lastInt = Math.floor(S.pos-1e-6);
   S.evIdx = cs.events.findIndex(e=>e.t>=startBeat-1e-6); if(S.evIdx<0) S.evIdx=cs.events.length;
@@ -488,13 +494,14 @@ function tick(){
   const now = performance.now();
   let dt = Math.min(.1,(now-S.last)/1000); S.last = now;
   if(S.waiting||S.scrubbing) return;
-  const cs = S.cs, spb = 60/S.bpm;
-  let np = S.pos + dt/spb;
+  const cs = S.cs;
+  let np = S.pos + dt*S.bpm*cs.pulse/60;
   // クリック
   const li = Math.floor(np);
   if(li > S.lastInt){
     for(let b=S.lastInt+1; b<=li; b++){
       const inCount = b < S.countUntil;
+      if(((b%cs.pulse)+cs.pulse)%cs.pulse!==0) continue;
       if(inCount || $('optMetro').checked) click(((b%cs.meter)+cs.meter)%cs.meter===0);
     }
     S.lastInt = li;
@@ -517,9 +524,9 @@ function tick(){
   S.pos = np;
   // タイミング: 見逃し判定
   if(S.mode==='timing'){
-    const pbNow = S.pos - (S.offMs/1000)*(S.bpm/60);
+    const pbNow = S.pos - (S.offMs/1000)*(S.bpm*cs.pulse/60);
     for(const c of cs.cues){
-      if(c.state==='pending' && c.t + 0.6 < pbNow) markMiss(c);
+      if(c.state==='pending' && c.t + winU() < pbNow) markMiss(c);
     }
   }
   // ループ/終了
@@ -529,7 +536,7 @@ function tick(){
     S.evIdx = cs.events.findIndex(e=>e.t>=S.loopStart-1e-6);
     cs.cues.forEach(c=>{ if(c.t>=S.loopStart-1e-6 && c.t<S.loopEnd) { c.state='pending'; c.played=false; c.delta=null; } });
     resetChips();
-  } else if(S.loopEnd==null && S.pos >= cs.total+1.5){
+  } else if(S.loopEnd==null && S.pos >= cs.total+1.5*cs.pulse){
     finishSong();
   }
 }
@@ -538,7 +545,9 @@ function markMiss(c){
   c.state='miss'; S.stats.miss++; paintChip(c);
   setFeedback(`見逃し: ${c.p.solfege}（${c.mnum}小節 ${fmtBeat(c.beat)}）`,'bad');
 }
-function judgeDeltaMs(deltaBeats){ return deltaBeats*60000/S.bpm; }
+function judgeDeltaMs(d){ return d*60000/(S.bpm*S.cs.pulse); }
+function winU(){ return 380/60000*S.bpm*S.cs.pulse; }
+function perfU(){ return 100/60000*S.bpm*S.cs.pulse; }
 
 function press(midi){
   audio();
@@ -573,18 +582,18 @@ function press(midi){
     return;
   }
   // timing
-  const pb = S.pos - (S.offMs/1000)*(S.bpm/60);
+  const pb = S.pos - (S.offMs/1000)*(S.bpm*S.cs.pulse/60);
   let best=null;
   for(const c of S.cs.cues){
     if(c.state!=='pending' || c.midi!==midi) continue;
     const d = pb - c.t;
-    if(Math.abs(d)<=0.6 && (!best || Math.abs(d)<Math.abs(best.d))) best={c,d};
+    if(Math.abs(d)<=winU() && (!best || Math.abs(d)<Math.abs(best.d))) best={c,d};
   }
   if(!best){ strike(midi,.35,true); S.stats.extra++; setFeedback('音の場所ではありません（余計な音）','bad'); return; }
   const {c,d} = best; const ms = Math.round(judgeDeltaMs(d));
   strike(midi,.7); c.played=true; c.delta=ms; S.stats.deltas.push(ms);
   const a = Math.abs(d);
-  if(a<=0.15){ c.state='hit'; S.stats.hit++; setFeedback(`${c.p.solfege} ばっちり！（${ms>=0?'+':''}${ms}ms）`,'ok'); }
+  if(a<=perfU()){ c.state='hit'; S.stats.hit++; setFeedback(`${c.p.solfege} ばっちり！（${ms>=0?'+':''}${ms}ms）`,'ok'); }
   else { c.state='near'; S.stats.near++; setFeedback(`${c.p.solfege} おしい。${d<0?'少し早い':'少し遅い'}（${ms>=0?'+':''}${ms}ms）`,'warn'); }
   paintChip(c);
 }
@@ -617,7 +626,7 @@ function hudIdle(){
 }
 function nextHtml(c, away){
   const li=laneIndex(c);
-  const when = away==null? `${c.mnum}小節 ${fmtBeat(c.beat)}` : `${c.mnum}小節 ${fmtBeat(c.beat)}（あと ${Math.max(0,away).toFixed(1)}拍）`;
+  const when = away==null? `${c.mnum}小節 ${fmtBeat(c.beat)}` : `${c.mnum}小節 ${fmtBeat(c.beat)}（あと ${Math.max(0,away).toFixed(1)}${(S.cs.song.hudSuffix||'拍')}）`;
   return `<span class="chip" style="--c:${lanesColor(li)}">${c.p.solfege}</span><div class="txt"><b>つぎは ${c.p.solfege}（${c.p.name}）${c.tremolo?' ゆらす':''}</b><span>${when}</span></div>`;
 }
 let lastNext=null;
@@ -625,12 +634,12 @@ function hud(){
   const cs=S.cs;
   const idx = Math.floor(S.pos/cs.meter);
   if(S.pos < S.countUntil-1e-6){
-    const n = Math.ceil(S.countUntil - S.pos - 1e-6);
+    const n = Math.ceil((S.countUntil - S.pos - 1e-6)/S.cs.pulse);
     $('pos').firstChild.nodeValue = 'カウント '+n; $('posSub').textContent='準備';
   } else {
     const m = cs.song.playOrder[Math.min(idx,cs.song.playOrder.length-1)];
     const b = Math.floor(S.pos - idx*cs.meter + 1e-6)+1;
-    $('pos').firstChild.nodeValue = `${m}小節 ${b}拍`; $('posSub').textContent = (S.cs.song.voltas&&S.cs.song.voltas[m])||(S.waiting?'あなたの番':'再生中');
+    $('pos').firstChild.nodeValue = `${m}小節 ${b}${S.cs.song.hudSuffix||'拍'}`; $('posSub').textContent = (S.cs.song.voltas&&S.cs.song.voltas[m])||(S.waiting?'あなたの番':'再生中');
   }
   const nc = S.waiting? S.pending[0] : nextPendingCue();
   const key = nc? nc.id+(S.waiting?'w':'') : 'none';
@@ -733,10 +742,10 @@ function frame(){
 /* ---------- テンポ・開始位置・譜面の移動 ---------- */
 function setBpm(v){
   v=Math.max(30,Math.min(200,Math.round(v))); S.bpm=v;
-  $('bpm').value=v; $('bpmVal').textContent='♩='+v; $('metroBpm').textContent=v;
+  $('bpm').value=v; $('bpmVal').textContent=((S.mode!=='metro'&&S.cs&&S.cs.song.tempoMark)||'♩=')+v; $('metroBpm').textContent=v;
   store.set(S.mode==='metro'?'bpm.metro':'bpm.'+S.cs.song.id, v);
 }
-function ppbNow(){ return Math.max(46,Math.min(84,W/9)); }
+function ppbNow(){ return Math.max(46,Math.min(84,W/9))*((S.cs&&S.cs.song.zoom)||1); }
 function firstIndexOf(m){ return S.cs.song.playOrder.indexOf(m); }
 function setStart(idx){
   idx=Math.max(0,Math.min(idx,S.cs.song.playOrder.length-1));
