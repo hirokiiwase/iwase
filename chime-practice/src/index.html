@@ -176,6 +176,7 @@ body.mode-metro .metro{display:block}
       <label class="ctl songonly"><span>終わりの小節</span><select id="endSel"></select></label>
     </div>
     <div class="grid2" style="margin-top:12px">
+      <label class="ctl"><span>音量 <b id="volVal"></b></span><input type="range" id="vol" min="0" max="100" step="5"></label>
       <label class="ctl"><span>テンポ <b id="bpmVal"></b></span><input type="range" id="bpm" min="30" max="200" step="1"></label>
       <label class="ctl songonly"><span>判定のずれ補正 <b id="offVal"></b>（イヤホンで遅れるときに）</span><input type="range" id="off" min="-150" max="250" step="10" value="0"></label>
       <label class="tg songonly"><input type="checkbox" id="optCount" checked><span>はじめにカウントを入れる</span></label>
@@ -276,6 +277,8 @@ function compile(song){
   });
   melMap.forEach(v=>melody.push(v)); melody.sort((a,b)=>a.t-b.t);
   events.sort((a,b)=>a.t-b.t || (a.mine?1:0)-(b.mine?1:0));
+  { const cnt=new Map(); events.forEach(e=>{ if(!e.sub){ const k=Math.round(e.t*1000); cnt.set(k,(cnt.get(k)||0)+1); } });
+    events.forEach(e=>{ e.n = e.sub ? 1 : cnt.get(Math.round(e.t*1000)); }); }
   cues.sort((a,b)=>a.t-b.t || a.midi-b.midi);
   cues.forEach((c,i)=>{ c.id=i; c.p = lanes.find(l=>l.midi===c.midi); });
   const pulse = song.pulse || 1;
@@ -284,23 +287,32 @@ function compile(song){
 
 /* ---------- 音 ---------- */
 let ctx=null, master=null;
+function applyVolume(){ if(master) master.gain.value = 1.2*Math.pow(S.vol/100,1.6); }
 function audio(){
   if(!ctx){
     const AC = window.AudioContext || window.webkitAudioContext;
     ctx = new AC();
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value=-14; comp.ratio.value=4;
-    master = ctx.createGain(); master.gain.value=.85;
-    master.connect(comp); comp.connect(ctx.destination);
+    // マスター音量 → リミッター(急な大音量を抑える) → ソフトクリップ(最後の安全装置) → 出力
+    master = ctx.createGain();
+    const lim = ctx.createDynamicsCompressor();
+    lim.threshold.value=-12; lim.knee.value=10; lim.ratio.value=12; lim.attack.value=.003; lim.release.value=.2;
+    // 圧縮器は小さい音を約1.7倍に持ち上げるので、その分を戻して「小さい音はそのまま・大きな山だけ抑える」にする
+    const post = ctx.createGain(); post.gain.value=.6;
+    const sat = ctx.createWaveShaper(), n=2048, cur=new Float32Array(n);
+    for(let i=0;i<n;i++){ const x=i/(n-1)*2-1; cur[i]=Math.tanh(1.5*x)/Math.tanh(1.5); }
+    sat.curve=cur;
+    master.connect(lim); lim.connect(post); post.connect(sat); sat.connect(ctx.destination);
+    applyVolume();
   }
   if(ctx.state!=='running') { try{ ctx.resume(); }catch(e){} }
   try{ if(navigator.audioSession) navigator.audioSession.type='playback'; }catch(e){}
   return ctx;
 }
-function strike(midi, vol=.5, soft=false){
+function strike(midi, vol=.5, soft=false, norm=1){
+  vol *= norm;
   const c = audio(); const t = c.currentTime;
   const f = 440*Math.pow(2,(midi-69)/12);
-  const decay = Math.min(3.2, Math.max(1.1, 2.4*Math.pow(261/f,.3))) * (soft?.45:1);
+  const decay = Math.min(2.6, Math.max(0.9, 1.9*Math.pow(261/f,.3))) * (soft?.45:1);   // 余韻を少し短くして、音の重なりを減らす
   const parts = [[1,1,1],[2.76,.32,.45],[5.4,.14,.25],[8.93,.05,.12]];
   for(const [r,g,d] of parts){
     const fr = f*r; if(fr>9000) continue;
@@ -317,7 +329,7 @@ function click(accent, when){
   const c = audio(); const t=when||c.currentTime;
   const o=c.createOscillator(), a=c.createGain();
   o.type='square'; o.frequency.value = accent?1500:1000;
-  a.gain.setValueAtTime(.0001,t); a.gain.exponentialRampToValueAtTime(accent?.22:.13,t+.002);
+  a.gain.setValueAtTime(.0001,t); a.gain.exponentialRampToValueAtTime(accent?.15:.09,t+.002);
   a.gain.exponentialRampToValueAtTime(.0001,t+.045);
   o.connect(a); a.connect(master); o.start(t); o.stop(t+.06);
 }
@@ -327,7 +339,7 @@ const S = {
   songs: window.SONGS, cs:null, mode:store.get('mode','listen'),
   running:false, waiting:false, pending:[], pos:0, startPos:0, evIdx:0, last:0,
   bpm:100, offMs:store.get('off',0), timer:null, raf:0,
-  loopEnd:null, loopStart:0, stats:null, flash:{}, bannerUntil:0, finished:false, startIdx:0, cursor:0, scrubbing:false
+  loopEnd:null, loopStart:0, stats:null, flash:{}, bannerUntil:0, finished:false, startIdx:0, cursor:0, scrubbing:false, vol:store.get('vol',80)
 };
 const lanesColor = i => `var(--chime${i+1})`;
 
@@ -472,16 +484,23 @@ async function lockScreen(on){
   }catch(e){ wake=null; }
 }
 
-function fire(ev){
+function fireDue(limit){
+  const ev=S.cs.events, batch=[];
+  while(S.evIdx<ev.length && ev[S.evIdx].t<=limit) batch.push(ev[S.evIdx++]);
+  const bn = batch.length>8 ? Math.sqrt(8/batch.length) : 1;   // 画面が固まって音がまとめて来ても、音量は増やさない
+  for(const e of batch) fire(e,bn);
+}
+function fire(ev, norm=1){
   const mode = S.mode;
+  norm *= Math.min(1, Math.sqrt(2/(ev.n||1)));   // 同時に鳴る音が多いほど1音あたりを小さく
   if(ev.mine){
     if(ev.sub){
-      if(mode==='listen' || ev.cue.played) strike(ev.midi,.22,true);
+      if(mode==='listen' || ev.cue.played) strike(ev.midi,.2,true,norm);
       return;
     }
-    if(mode==='listen'){ strike(ev.midi,.62); ev.cue.state='hit'; ev.cue.played=true; S.flash[ev.midi]=performance.now(); }
+    if(mode==='listen'){ strike(ev.midi,.4,false,norm); ev.cue.state='hit'; ev.cue.played=true; S.flash[ev.midi]=performance.now(); }
   } else if($('optOthers').checked){
-    strike(ev.midi, ev.soft?.12 : ev.hand==='RH'?.30:.34, !!ev.soft);
+    strike(ev.midi, ev.soft?.12 : ev.hand==='RH'?.30:.32, !!ev.soft, norm);
   }
 }
 
@@ -514,7 +533,7 @@ function tick(){
   }
   let limit = stopAt!==null ? stopAt-1e-6 : np;
   if(S.loopEnd!=null) limit = Math.min(limit, S.loopEnd-1e-6);
-  while(S.evIdx<cs.events.length && cs.events[S.evIdx].t<=limit){ fire(cs.events[S.evIdx++]); }
+  fireDue(limit);
   if(stopAt!==null){
     S.pos = stopAt; S.waiting=true;
     S.pending = cs.cues.filter(c=>c.state==='pending' && Math.abs(c.t-stopAt)<1e-6);
@@ -554,20 +573,20 @@ function press(midi){
   const lane = S.cs.lanes.findIndex(p=>p.midi===midi);
   S.flash[midi] = performance.now();
   if(!S.running || S.mode==='listen'){
-    strike(midi,.62); return;
+    strike(midi,.4); return;
   }
   if(S.mode==='step'){
     if(S.waiting){
       const c = S.pending.find(x=>x.midi===midi);
       if(c){
         c.state='hit'; c.played=true; S.stats.hit++; paintChip(c);
-        strike(midi,.7);
+        strike(midi,.42);
         S.pending = S.pending.filter(x=>x!==c);
         setFeedback(`${c.p.solfege} OK（${c.mnum}小節 ${fmtBeat(c.beat)}）`,'ok');
         if(!S.pending.length){
           S.waiting=false; S.bannerUntil=0; S.last=performance.now(); clearTargets();
           // 同時刻の他パートを即座に鳴らす
-          while(S.evIdx<S.cs.events.length && S.cs.events[S.evIdx].t<=S.pos+1e-6){ fire(S.cs.events[S.evIdx++]); }
+          fireDue(S.pos+1e-6);
         }
       } else {
         strike(midi,.3,true); S.stats.extra++;
@@ -591,7 +610,7 @@ function press(midi){
   }
   if(!best){ strike(midi,.35,true); S.stats.extra++; setFeedback('音の場所ではありません（余計な音）','bad'); return; }
   const {c,d} = best; const ms = Math.round(judgeDeltaMs(d));
-  strike(midi,.7); c.played=true; c.delta=ms; S.stats.deltas.push(ms);
+  strike(midi,.42); c.played=true; c.delta=ms; S.stats.deltas.push(ms);
   const a = Math.abs(d);
   if(a<=perfU()){ c.state='hit'; S.stats.hit++; setFeedback(`${c.p.solfege} ばっちり！（${ms>=0?'+':''}${ms}ms）`,'ok'); }
   else { c.state='near'; S.stats.near++; setFeedback(`${c.p.solfege} おしい。${d<0?'少し早い':'少し遅い'}（${ms>=0?'+':''}${ms}ms）`,'warn'); }
@@ -861,6 +880,8 @@ function setMode(m, init){
   document.querySelectorAll('input[name=mode]').forEach(r=>{ r.checked = r.value===m; });
 }
 function bindExtra(){
+  const vs=$('vol'); vs.value=S.vol; $('volVal').textContent=S.vol+'%';
+  vs.addEventListener('input',()=>{ S.vol=+vs.value; $('volVal').textContent=S.vol+'%'; store.set('vol',S.vol); applyVolume(); });
   $('seekBack').addEventListener('click',()=>seekMeasures(-1));
   $('seekFwd').addEventListener('click',()=>seekMeasures(1));
   const sk=$('seek');
