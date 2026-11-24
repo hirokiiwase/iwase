@@ -109,6 +109,17 @@ canvas:active{cursor:grabbing}
 .mc.miss{background:var(--bad);color:#fff;border-color:var(--bad)}
 .m.dim{opacity:.55}
 .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;color:var(--muted);font-size:12px}
+.onlymine{display:flex;align-items:center;gap:12px;margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;cursor:pointer;background:var(--bg)}
+.onlymine input{position:absolute;opacity:0;pointer-events:none}
+.onlymine .sw{flex:none;width:46px;height:26px;border-radius:999px;background:var(--line);position:relative;transition:background .15s}
+.onlymine .sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--panel);box-shadow:0 1px 2px rgba(0,0,0,.35);transition:transform .15s}
+.onlymine:has(input:checked){border-color:var(--chime2);background:var(--chime2-soft)}
+.onlymine input:checked+.sw{background:var(--chime2)}
+.onlymine input:checked+.sw::after{transform:translateX(20px)}
+.onlymine:has(input:focus-visible){outline:3px solid var(--chime2);outline-offset:2px}
+.onlymine .tx{display:flex;flex-direction:column;min-width:0}
+.onlymine .tx b{font-family:var(--font-d);font-size:15px}
+.onlymine .tx small{color:var(--muted);font-size:12px;line-height:1.4}
 .foot{color:var(--muted);font-size:12px}
 body.mode-metro .songonly{display:none!important}
 .metro{display:none}
@@ -193,13 +204,13 @@ body.mode-metro .metro{display:block}
       <label class="tg songonly"><input type="checkbox" id="loopOn"><span>ここまでをくり返す</span></label>
       <label class="ctl songonly"><span>終わりの小節</span><select id="endSel"></select></label>
     </div>
+    <label class="onlymine songonly" id="onlyMineTg"><input type="checkbox" id="optOnlyMine"><span class="sw" aria-hidden="true"></span><span class="tx"><b>自分の担当の音だけ鳴らす</b><small id="onlyMineHelp"></small></span></label>
     <div class="grid2" style="margin-top:12px">
       <label class="ctl"><span>音量 <b id="volVal"></b></span><input type="range" id="vol" min="0" max="100" step="5"></label>
       <label class="ctl"><span>テンポ <b id="bpmVal"></b></span><input type="range" id="bpm" min="30" max="200" step="1"></label>
       <label class="ctl songonly"><span>判定のずれ補正 <b id="offVal"></b>（イヤホンで遅れるときに）</span><input type="range" id="off" min="-150" max="250" step="10" value="0"></label>
       <label class="tg songonly"><input type="checkbox" id="optCount" checked><span>はじめにカウントを入れる</span></label>
       <label class="tg songonly"><input type="checkbox" id="optMetro"><span>メトロノーム（拍のクリック）</span></label>
-      <label class="tg songonly"><input type="checkbox" id="optOthers" checked><span>ほかの人の音を鳴らす</span></label>
     </div>
   </div>
 
@@ -535,7 +546,7 @@ function fire(ev, norm=1){
       return;
     }
     if(mode==='listen'){ strike(ev.midi,.4,false,norm); ev.cue.state='hit'; ev.cue.played=true; S.flash[ev.midi]=performance.now(); }
-  } else if($('optOthers').checked){
+  } else if(!$('optOnlyMine').checked){
     strike(ev.midi, ev.soft?.12 : ev.hand==='RH'?.30:.32, !!ev.soft, norm);
   }
 }
@@ -920,6 +931,7 @@ function setMode(m, init){
   S.mode=m; store.set('mode',m);
   $('modeHelp').textContent=MODE_HELP[m];
   document.body.classList.toggle('mode-metro', m==='metro');
+  updateOnlyMineHelp();
   if(m==='metro'){ setBpm(store.get('bpm.metro',100)); buildBeats(); $('btnPlay').textContent='▶ スタート'; }
   else { setBpm(store.get('bpm.'+S.cs.song.id, S.cs.song.tempo||100)); $('btnPlay').textContent='▶ はじめる'; fit(); }
   document.querySelectorAll('input[name=mode]').forEach(r=>{ r.checked = r.value===m; });
@@ -1219,6 +1231,12 @@ function drawScore(){
   g.fillText(String(cs.meter),tx,LAY.bBot-3*sp); g.fillText(String(cs.whole),tx,LAY.bBot-sp);
 }
 
+function updateOnlyMineHelp(){
+  const on=$('optOnlyMine').checked, m=S.mode, h=$('onlyMineHelp'); if(!h) return;
+  h.textContent = on
+    ? (m==='listen' ? 'いま: あなたのチャイムだけが鳴ります（ほかのパートは消えています）' : 'いま: ほかのパートは消えています。あなたの音は、ボタンを押したときだけ鳴ります')
+    : 'オフ: ほかのパートも一緒に鳴ります';
+}
 function setView(v, init){
   S.view = v==='score' ? 'score' : 'roll'; store.set('view',S.view);
   $('stagewrap').classList.toggle('paper', S.view==='score');
@@ -1240,9 +1258,9 @@ function bindUI(){
   $('startSel').addEventListener('change', ()=>setStart(+$('startSel').value));
   $('bpm').addEventListener('input', e=>setBpm(+e.target.value));
   $('off').addEventListener('input', e=>{ S.offMs=+e.target.value; $('offVal').textContent=(S.offMs>=0?'+':'')+S.offMs+'ms'; store.set('off',S.offMs); });
-  for(const id of ['optCount','optMetro','optOthers','loopOn']){
+  for(const id of ['optCount','optMetro','optOnlyMine','loopOn']){
     const el=$(id); const v=store.get(id,null); if(v!==null) el.checked=v;
-    el.addEventListener('change',()=>store.set(id,el.checked));
+    el.addEventListener('change',()=>{ store.set(id,el.checked); if(id==='optOnlyMine') updateOnlyMineHelp(); });
   }
   document.querySelectorAll('input[name=mode]').forEach(r=>{
     r.checked = r.value===S.mode;
@@ -1279,7 +1297,7 @@ function bindUI(){
 }
 if(!S.songs.length){ document.body.innerHTML='<p style="padding:20px">曲データがありません。</p>'; return; }
 S.countUntil=0; S.lastInt=0;
-bindUI(); loadSong($('songSel').value); setMode(S.mode,true); setView(S.view,true); fit(); frame();
+bindUI(); loadSong($('songSel').value); setMode(S.mode,true); setView(S.view,true); updateOnlyMineHelp(); fit(); frame();
 window.__chime = {S, compile, parsePitch}; // 検証用
 })();
 </script>
