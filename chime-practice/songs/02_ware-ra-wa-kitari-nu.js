@@ -76,6 +76,7 @@
     subtitle: 'We Three Kings of Orient Are（ジョン・ホプキンズ）',
     arranger: '',
     meter: 3,            // 1小節 = 8分音符3つ
+    whole: 8,            // 全音符 = 8分音符8つ (譜面の音符の形を決める)
     pulse: 3,            // クリックは付点4分音符ごと(=1小節に1回)
     countIn: 6,          // はじめに2小節ぶんのカウント
     zoom: .75,

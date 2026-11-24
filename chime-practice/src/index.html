@@ -1,7 +1,7 @@
 <title>チャイム練習帳</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Music&display=swap">
 <style>
 /* レイアウト: 上から「ステージ(流れる譜)→いま/つぎ→大きな音ボタン→操作→小節マップ」。スマホ縦持ち優先。 */
 :root{
@@ -11,6 +11,7 @@
   --chime3:#6741d9; --chime3-soft:#e6dfff;
   --ok:#2b8a3e; --warn:#b36b00; --bad:#c92a2a;
   --stage:#101a26; --stage-fg:#e8eef5; --stage-dim:#6d8196; --stage-line:#2a3a4d;
+  --paper:#fbfaf6; --ink:#1b2430; --ink-dim:#7d8a97; --staff:#8d99a6;
   --font-d:'Zen Maru Gothic','Hiragino Maru Gothic ProN','Yu Gothic',sans-serif;
   --font-b:'Noto Sans JP','Hiragino Sans','Yu Gothic',Meiryo,sans-serif;
 }
@@ -21,6 +22,7 @@
   --chime3:#b197fc; --chime3-soft:#2b2352;
   --ok:#69db7c; --warn:#ffc078; --bad:#ff8787;
   --stage:#0a0f16; --stage-fg:#e8eef5; --stage-dim:#6d8196; --stage-line:#26344a;
+  --paper:#0f1620; --ink:#e9eff6; --ink-dim:#7f93a8; --staff:#4a5d73;
   color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0c1118; --panel:#161e29; --fg:#e8eef5; --muted:#92a1b1; --line:#2a3646;
@@ -29,6 +31,7 @@
   --chime3:#b197fc; --chime3-soft:#2b2352;
   --ok:#69db7c; --warn:#ffc078; --bad:#ff8787;
   --stage:#0a0f16; --stage-fg:#e8eef5; --stage-dim:#6d8196; --stage-line:#26344a;
+  --paper:#0f1620; --ink:#e9eff6; --ink-dim:#7f93a8; --staff:#4a5d73;
   color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--fg);font-family:var(--font-b);font-size:15px;line-height:1.55;
@@ -53,6 +56,14 @@ button{cursor:pointer}
 .stagewrap{background:var(--stage);border-radius:14px;overflow:hidden;position:relative;border:1px solid var(--stage-line)}
 canvas{display:block;width:100%;height:300px;touch-action:pan-y;cursor:grab}
 canvas:active{cursor:grabbing}
+.viewbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
+.seg label{padding:8px 14px;font-weight:700;font-family:var(--font-d);cursor:pointer;min-height:40px;display:flex;align-items:center}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label:has(input:checked){background:var(--fg);color:var(--bg)}
+.seg label:has(input:focus-visible){outline:3px solid var(--chime2);outline-offset:-3px}
+.stagewrap.paper{background:var(--paper)}
+.stagewrap.paper .banner{color:var(--ink);top:6px;text-align:right;padding-right:14px;font-size:19px;text-shadow:0 0 8px var(--paper),0 0 2px var(--paper)}
 .banner{position:absolute;left:0;right:0;top:34px;text-align:center;pointer-events:none;font-family:var(--font-d);font-weight:900;font-size:26px;color:var(--stage-fg);opacity:0;transition:opacity .08s}
 .banner.on{opacity:1}
 .hud{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center}
@@ -135,7 +146,14 @@ body.mode-metro .metro{display:block}
     <p class="modehelp" id="modeHelp"></p>
   </div>
 
-  <div class="stagewrap songonly">
+  <div class="viewbar songonly">
+    <div class="seg" role="radiogroup" aria-label="譜面の表示">
+      <label><input type="radio" name="view" value="roll"><span>流れる音</span></label>
+      <label><input type="radio" name="view" value="score"><span>ピアノ譜</span></label>
+    </div>
+    <label class="tg" id="namesTg"><input type="checkbox" id="optNames"><span>ほかの音にも音名（ドレミ）を付ける</span></label>
+  </div>
+  <div class="stagewrap songonly" id="stagewrap">
     <canvas id="stage" aria-label="自分の音が流れてくる画面"></canvas>
     <div class="banner" id="banner">いま！</div>
   </div>
@@ -193,7 +211,7 @@ body.mode-metro .metro{display:block}
     <div class="map" id="map"></div>
   </div>
 
-  <p class="foot">タップ、またはキーボード（スペース＝いまの音 / F・J＝左・右のチャイム / ←→＝1小節移動）で操作できます。譜面は指やマウスでドラッグすると前後に動きます。小節カードを押すと、そこから練習を始められます。</p>
+  <p class="foot">タップ、またはキーボード（スペース＝いまの音 / F・J＝左・右のチャイム / ←→＝1小節移動）で操作できます。譜面（ピアノ譜／流れる音）は指やマウスでドラッグすると前後に動きます。小節カードを押すと、そこから練習を始められます。</p>
 </main>
 
 <script>
@@ -244,6 +262,7 @@ function compile(song){
   const dup = new Set(lanes.map(l=>l.solfege)).size < lanes.length;
   if(dup){ const names=['低','高']; lanes.forEach((l,i)=>{ l.solfege = (lanes.length===2?names[i]:'')+l.solfege; }); }
   const events = [];
+  const entries = [];
   const cues = [];
   const melody = [], melMap = new Map();
   song.playOrder.forEach((mnum, idx) => {
@@ -253,13 +272,14 @@ function compile(song){
       for(const n of (ms[hand]||[])){
         const t = base + (n.beat-1);
         const ps = (n.pitches||[]).map(p => parsePitch(p, kf));
+        entries.push({idx, mnum, hand, t, beat:n.beat, dur:n.dur, notes:ps, rest:ps.length===0, tremolo:!!n.tremolo});
         for(const p of ps){
           const isMine = myMidi.has(p.midi);
           const ev = {t, dur:n.dur, midi:p.midi, name:p.name, hand, mine:isMine, tremolo:!!n.tremolo, idx, mnum, beat:n.beat};
           events.push(ev);
           if(isMine){
             const cue = {id:cues.length, t, dur:n.dur, midi:p.midi, p, tremolo:!!n.tremolo, idx, mnum, beat:n.beat, state:'pending', played:false, delta:null};
-            ev.cue = cue; cues.push(cue);
+            ev.cue = cue; cues.push(cue); p.cue = cue;
             if(n.tremolo){
               for(let k=1; k*0.25 < n.dur-0.01; k++) events.push({t:t+k*0.25, dur:0.25, midi:p.midi, name:p.name, hand, mine:true, sub:true, cue, idx, mnum});
             }
@@ -282,7 +302,9 @@ function compile(song){
   cues.sort((a,b)=>a.t-b.t || a.midi-b.midi);
   cues.forEach((c,i)=>{ c.id=i; c.p = lanes.find(l=>l.midi===c.midi); });
   const pulse = song.pulse || 1;
-  return {song, meter, pulse, countIn: song.countIn || meter, mine, lanes, events, cues, melody, total: song.playOrder.length*meter};
+  const cs = {song, meter, pulse, whole: song.whole || 4, countIn: song.countIn || meter, mine, lanes, events, cues, melody, entries, total: song.playOrder.length*meter};
+  cs.score = buildScore(cs, kf);
+  return cs;
 }
 
 /* ---------- 音 ---------- */
@@ -339,7 +361,7 @@ const S = {
   songs: window.SONGS, cs:null, mode:store.get('mode','listen'),
   running:false, waiting:false, pending:[], pos:0, startPos:0, evIdx:0, last:0,
   bpm:100, offMs:store.get('off',0), timer:null, raf:0,
-  loopEnd:null, loopStart:0, stats:null, flash:{}, bannerUntil:0, finished:false, startIdx:0, cursor:0, scrubbing:false, vol:store.get('vol',80)
+  loopEnd:null, loopStart:0, stats:null, flash:{}, bannerUntil:0, finished:false, startIdx:0, cursor:0, scrubbing:false, vol:store.get('vol',80), view:store.get('view','score')
 };
 const lanesColor = i => `var(--chime${i+1})`;
 
@@ -678,18 +700,23 @@ function theme(){
   const now=performance.now();
   if(!themeCache || now-themeAt>800){
     themeCache={fg:cssVar('--stage-fg'),dim:cssVar('--stage-dim'),line:cssVar('--stage-line'),
-      c:[cssVar('--chime1'),cssVar('--chime2'),cssVar('--chime3')],ok:cssVar('--ok'),warn:cssVar('--warn'),bad:cssVar('--bad'),stage:cssVar('--stage')};
+      c:[cssVar('--chime1'),cssVar('--chime2'),cssVar('--chime3')],ok:cssVar('--ok'),warn:cssVar('--warn'),bad:cssVar('--bad'),stage:cssVar('--stage'),
+      paper:cssVar('--paper'),ink:cssVar('--ink'),inkDim:cssVar('--ink-dim'),staff:cssVar('--staff')};
     themeAt=now;
   }
   return themeCache;
 }
 function draw(){
   if(S.mode==='metro') return;
+  if(S.view==='score') return drawScore();
+  drawRoll();
+}
+function drawRoll(){
   const T=theme(), cs=S.cs; if(!cs||!W) return;
   g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
   g.fillStyle=T.stage; g.fillRect(0,0,W,H);
   const pos = S.running? S.pos : S.cursor;
-  const nowX = Math.min(W*.24,110), ppb = ppbNow();
+  const nowX = Math.min(W*.24,110), ppb = ppbRoll();
   const X = t => nowX + (t-pos)*ppb;
   const top=30, nl=cs.lanes.length, laneH = nl>2?44:52, lanesY=top+8, melY = lanesY+nl*laneH+10, melH = Math.max(34,H-melY-8);
   g.font='600 12px '+getComputedStyle(document.body).fontFamily; g.textBaseline='middle';
@@ -779,7 +806,8 @@ function setBpm(v){
   $('bpm').value=v; $('bpmVal').textContent=((S.mode!=='metro'&&S.cs&&S.cs.song.tempoMark)||'♩=')+v; $('metroBpm').textContent=v;
   store.set(S.mode==='metro'?'bpm.metro':'bpm.'+S.cs.song.id, v);
 }
-function ppbNow(){ return Math.max(46,Math.min(84,W/9))*((S.cs&&S.cs.song.zoom)||1); }
+function ppbRoll(){ return Math.max(46,Math.min(84,W/9))*((S.cs&&S.cs.song.zoom)||1); }
+function ppbNow(){ return S.view==='score' ? scorePPU() : ppbRoll(); }
 function firstIndexOf(m){ return S.cs.song.playOrder.indexOf(m); }
 function setStart(idx){
   idx=Math.max(0,Math.min(idx,S.cs.song.playOrder.length-1));
@@ -903,6 +931,288 @@ function bindExtra(){
   ma.addEventListener('change',()=>store.set('metroAccent',ma.checked));
 }
 
+/* ---------- ピアノ譜(大譜表)の表示 ---------- */
+const LAY = {sp:12, tBot:120, bBot:232, tDia:30, bDia:18};   // 五線の間隔と、最下線の位置(ト音:E4=30, ヘ音:G2=18)
+const LETTER = 'CDEFGAB';
+function scorePPU(c){ const w=((c||S.cs||{}).whole)||4; return 66/(w/4); }
+function yDia(hand, dia){ return hand==='RH' ? LAY.tBot-(dia-LAY.tDia)*LAY.sp/2 : LAY.bBot-(dia-LAY.bDia)*LAY.sp/2; }
+const KEY_ORDER_SHARP = ['F','C','G','D','A','E','B'], KEY_ORDER_FLAT = ['B','E','A','D','G','C','F'];
+const KEY_POS = { // 調号の位置(音の高さ index) ト音/ヘ音
+  sharp:{T:[38,35,39,36,33,37,34], B:[24,21,25,22,19,23,20]},
+  flat:{T:[34,37,33,36,32,35,31], B:[20,23,19,22,18,21,17]} };
+
+function buildScore(cs, kf){
+  const whole=cs.whole, meter=cs.meter, ppu=scorePPU(cs), sp=LAY.sp;
+  const beamUnit = cs.song.beamUnit || cs.pulse;
+  const groups = new Map();
+  for(const e of cs.entries){ const k=e.idx+'|'+e.hand; if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(e); }
+  const beams = [];
+  groups.forEach(list=>{
+    const hand=list[0].hand, mid = hand==='RH' ? 34 : 22;
+    for(const e of list){
+      e.r = e.dur/whole; e.end = e.t+e.dur;
+      for(const n of e.notes) n.dia = n.oct*7 + LETTER.indexOf(n.letter);
+      e.notes.sort((a,b)=>a.dia-b.dia);
+      if(e.notes.length){ e.bot=e.notes[0].dia; e.top=e.notes[e.notes.length-1].dia; }
+      const base = Math.pow(2, Math.floor(Math.log2(e.r+1e-9)));
+      e.dotted = Math.abs(e.r/base-1.5)<0.02;
+      e.dur2 = e.r>=1-1e-6 ? 'whole' : (e.r/(e.dotted?1.5:1))>=.5-1e-6 ? 'half' : (e.r/(e.dotted?1.5:1))>=.25-1e-6 ? 'quarter' : (e.r/(e.dotted?1.5:1))>=.125-1e-6 ? 'eighth' : 'sixteenth';
+    }
+    const real = list.filter(e=>!e.rest).sort((a,b)=>a.t-b.t || b.top-a.top);
+    // 声部: 時間が重なる音符があれば上声(0)/下声(1)に分ける
+    let overlap=false;
+    for(let i=0;i<real.length;i++) for(let j=i+1;j<real.length;j++) if(real[i].t<real[j].end-1e-6 && real[j].t<real[i].end-1e-6) overlap=true;
+    const seen=new Set(); let busyU=-1e9;
+    for(const e of real){
+      if(!overlap){ e.voice=-1; continue; }
+      const k=e.t.toFixed(3); let v;
+      if(seen.has(k)) v=1; else if(busyU<=e.t+1e-6) v=0; else v=1;
+      seen.add(k); e.voice=v; if(v===0) busyU=e.end;
+    }
+    // 符幹の向き
+    for(const e of real){
+      if(e.voice===0) e.up=true; else if(e.voice===1) e.up=false;
+      else { const far = Math.abs(e.top-mid)>=Math.abs(e.bot-mid) ? e.top : e.bot; e.up = far<mid; }
+    }
+    // 連桁(8分音符以下が連続し、同じ拍グループにある音符)
+    const byVoice = new Map();
+    for(const e of real){ const k=String(e.voice); if(!byVoice.has(k)) byVoice.set(k,[]); byVoice.get(k).push(e); }
+    byVoice.forEach(vl=>{
+      let cur=[];
+      const flush=()=>{
+        if(cur.length>=2){
+          const avg=cur.reduce((s,e)=>s+(Math.abs(e.top-mid)>=Math.abs(e.bot-mid)?e.top:e.bot),0)/cur.length;
+          const forced = cur[0].voice>=0;
+          const up = forced ? cur[0].up : avg<mid;
+          cur.forEach(e=>{ e.up=up; });
+          beams.push({entries:cur.slice(), up, hand});
+          cur.forEach(e=>{ e.beam=true; });
+        }
+        cur=[];
+      };
+      for(const e of vl){
+        const win = Math.floor((e.beat-1+1e-6)/beamUnit);
+        if(e.r<=.125+1e-6 && !e.rest){
+          if(cur.length && Math.abs(cur[cur.length-1].end-e.t)<1e-6 && Math.floor((cur[0].beat-1+1e-6)/beamUnit)===win) cur.push(e);
+          else { flush(); cur=[e]; }
+        } else flush();
+      }
+      flush();
+    });
+    // 臨時記号(調号で決まる音は付けない。小節内で一度付けたら、その小節では効く)
+    const state=new Map();
+    for(const e of real){
+      for(const n of e.notes){
+        const kk=n.letter+n.oct;
+        const kAlt = kf.flats.includes(n.letter) ? -1 : (kf.sharps.includes(n.letter) ? 1 : 0);
+        const alt = n.acc==='♭' ? -1 : n.acc==='♯' ? 1 : 0;
+        const cur = state.has(kk) ? state.get(kk) : kAlt;
+        n.sign = alt!==cur ? (alt<0?'♭':alt>0?'♯':'♮') : '';
+        state.set(kk,alt);
+      }
+      // 2度の音符は左右にずらす
+      const ns=e.notes; for(const n of ns) n.disp=0;
+      if(e.up){ for(let i=1;i<ns.length;i++) if(ns[i].dia-ns[i-1].dia===1 && ns[i-1].disp===0) ns[i].disp=1; }
+      else { for(let i=ns.length-2;i>=0;i--) if(ns[i+1].dia-ns[i].dia===1 && ns[i+1].disp===0) ns[i].disp=-1; }
+    }
+  });
+  // 連桁の形(傾き)を決める
+  const hw=sp*1.25;
+  for(const b of beams){
+    const e0=b.entries[0], eN=b.entries[b.entries.length-1];
+    const tipOf=e=>{ const yTop=yDia(b.hand,e.top), yBot=yDia(b.hand,e.bot); return b.up ? yTop-3.4*sp : yBot+3.4*sp; };
+    let y1=tipOf(e0), y2=tipOf(eN);
+    if(Math.abs(y2-y1)>1.4*sp){ if(Math.abs(y1-yDia(b.hand,e0.top))<Math.abs(y2-yDia(b.hand,eN.top))) y2=y1+Math.sign(y2-y1)*1.4*sp; else y1=y2-Math.sign(y2-y1)*1.4*sp; }
+    const slope = (y2-y1)/(Math.max(1e-6,(eN.t-e0.t)*ppu));
+    // どの符幹も最低 2.6 スペースの長さにする
+    let shift=0;
+    for(const e of b.entries){
+      const yAt = y1 + (e.t-e0.t)*ppu*slope;
+      const need = b.up ? yDia(b.hand,e.top)-2.6*sp : yDia(b.hand,e.bot)+2.6*sp;
+      shift = b.up ? Math.max(shift, yAt-need) : Math.min(shift, yAt-need);
+    }
+    b.y1 = y1 - shift; b.slope=slope; b.t1=e0.t;
+  }
+  // 調号・拍子記号
+  const nSharp = (cs.song.keySharps||[]).length, nFlat=(cs.song.keyFlats||[]).length;
+  const keyN = nSharp||nFlat, panelW = 12+34+(keyN? keyN*10+8 : 0)+30+8;
+  return {beams, panelW, keyN, keyType: nSharp?'sharp':'flat', hw};
+}
+
+function drawScore(){
+  const T=theme(), cs=S.cs; if(!cs||!W) return;
+  const sc=cs.score, sp=LAY.sp, hw=sc.hw, ppu=scorePPU();
+  const ff=getComputedStyle(document.body).fontFamily;
+  g.setTransform(dpr,0,0,dpr,0,0);
+  g.fillStyle=T.paper; g.fillRect(0,0,W,H);
+  const pos = S.running? S.pos : S.cursor;
+  const nowX = Math.max(sc.panelW+40, W*.3), X=t=>nowX+(t-pos)*ppu, NX=t=>X(t)+hw*1.5;   // 音符は小節線から少し右に置く
+  const tTop=LAY.tBot-4*sp, bTop=LAY.bBot-4*sp, bBot=LAY.bBot;
+  const order=cs.song.playOrder;
+  g.textBaseline='middle';
+  // 五線
+  g.strokeStyle=T.staff; g.lineWidth=1;
+  for(const bot of [LAY.tBot,LAY.bBot]) for(let k=0;k<5;k++){ const y=bot-k*sp; g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke(); }
+  // 小節線・小節番号
+  const i0=Math.max(0,Math.floor(pos/cs.meter-(nowX/ppu)/cs.meter)-1), i1=Math.min(order.length,Math.ceil(pos/cs.meter+((W-nowX)/ppu)/cs.meter)+1);
+  g.font='600 11px '+ff;
+  for(let i=i0;i<=i1;i++){
+    const x=X(i*cs.meter); g.strokeStyle=T.staff; g.lineWidth=1.2; g.beginPath(); g.moveTo(x,tTop); g.lineTo(x,bBot); g.stroke();
+    if(i<order.length){ g.fillStyle=T.inkDim; g.textAlign='left'; g.fillText(String(order[i]),x+4,tTop-34); }
+  }
+  // いま線(音符の中心がこの線を通った瞬間に鳴る)
+  g.strokeStyle = S.waiting ? T.warn : T.ink; g.lineWidth = S.waiting?3.5:2; g.globalAlpha = S.waiting?.9:.3;
+  g.beginPath(); g.moveTo(NX(pos),tTop-26); g.lineTo(NX(pos),bBot+34); g.stroke(); g.globalAlpha=1;
+  // 音符
+  const colOf=(n)=>{ const li=cs.lanes.findIndex(l=>l.midi===n.midi); return li<0?T.c[0]:T.c[li%3]; };
+  const names=$('optNames').checked, chips=[];
+  const visible=e=>{ const x=NX(e.t); return x>sc.panelW-30 && x<W+30; };
+  const drawHead=(e,n,x)=>{
+    const cx=x+n.disp*hw, cy=yDia(e.hand,n.dia), mine=!!n.cue;
+    const past=e.t<pos-0.05;
+    g.globalAlpha=past?.38:1;
+    // 加線
+    const bot=e.hand==='RH'?LAY.tDia:LAY.bDia, top=bot+8;
+    g.strokeStyle=T.ink; g.lineWidth=1.2;
+    if(n.dia<bot){ for(let d=bot-2; d>=n.dia; d-=2){ const yy=yDia(e.hand,d); g.beginPath(); g.moveTo(cx-hw*.95,yy); g.lineTo(cx+hw*.95,yy); g.stroke(); } }
+    if(n.dia>top){ for(let d=top+2; d<=n.dia; d+=2){ const yy=yDia(e.hand,d); g.beginPath(); g.moveTo(cx-hw*.95,yy); g.lineTo(cx+hw*.95,yy); g.stroke(); } }
+    let col=T.ink;
+    if(mine){ const st=n.cue.state; col = st==='hit'?T.ok : st==='near'?T.warn : st==='miss'?T.bad : colOf(n); }
+    g.save(); g.translate(cx,cy); g.rotate(-.35);
+    g.beginPath(); g.ellipse(0,0,hw*.6,sp*.46,0,0,7);
+    if(e.dur2==='whole'){ g.lineWidth=2.4; g.strokeStyle=col; g.stroke(); }
+    else if(e.dur2==='half'){ g.lineWidth=2; g.strokeStyle=col; g.stroke(); }
+    else { g.fillStyle=col; g.fill(); }
+    g.restore();
+    if(mine){
+      g.lineWidth=2.4; g.strokeStyle=col; g.globalAlpha=past?.35:.9;
+      g.beginPath(); g.arc(cx,cy,hw*1.05,0,7); g.stroke();
+    }
+    g.globalAlpha=past?.38:1;
+    // 臨時記号
+    if(n.sign){ g.fillStyle=T.ink; g.font='700 '+Math.round(sp*1.7)+'px "Noto Music","Segoe UI Symbol",serif'; g.textAlign='right'; g.fillText(n.sign,cx-hw*.85,cy-1); }
+    // 付点
+    if(e.dotted){ const onLine = ((n.dia-(e.hand==='RH'?LAY.tDia:LAY.bDia))%2)===0; g.fillStyle=T.ink; g.beginPath(); g.arc(x+hw*(1.0+Math.max(0,n.disp)*.9)+3, cy-(onLine?sp*.5:0), 1.9,0,7); g.fill(); }
+    // 音名
+    if(mine || names){
+      g.font=(mine?'800 11px ':'600 9px ')+ff; g.textAlign='center';
+      if(mine){
+        // 担当音は、五線の外側に色つきのラベルを出す(最後にまとめて最前面へ描く)
+        const lbl = (cs.lanes.find(l=>l.midi===n.midi)||n).solfege;
+        chips.push({cx,cy,hand:e.hand,lbl,col,past});
+      } else {
+        g.fillStyle=T.inkDim; g.strokeStyle=T.paper; g.lineWidth=3; const lbl=n.solfege; g.strokeText(lbl,cx,cy+sp*1.05); g.fillText(lbl,cx,cy+sp*1.05);
+      }
+    }
+    g.globalAlpha=1;
+  };
+  const stemOf=(e,x,tipY)=>{
+    const past=e.t<pos-0.05; g.globalAlpha=past?.38:1;
+    const sx = x + (e.up ? hw*.58 : -hw*.58);
+    const yTop=yDia(e.hand,e.top), yBot=yDia(e.hand,e.bot);
+    g.strokeStyle=T.ink; g.lineWidth=1.4; g.beginPath();
+    if(e.up){ g.moveTo(sx,yBot); g.lineTo(sx,tipY); } else { g.moveTo(sx,yTop); g.lineTo(sx,tipY); }
+    g.stroke(); g.globalAlpha=1;
+    return sx;
+  };
+  const midY = h => h==='RH' ? LAY.tBot-2*sp : LAY.bBot-2*sp;
+  const drawn=new Set();
+  for(const b of sc.beams){
+    const eFirst=b.entries[0], eLast=b.entries[b.entries.length-1];
+    if(NX(eLast.t)<sc.panelW-40 || NX(eFirst.t)>W+40) continue;
+    const yAt = t => b.y1 + (t-b.t1)*ppu*b.slope;
+    let sxs=[];
+    for(const e of b.entries){
+      drawn.add(e); const x=NX(e.t);
+      for(const n of e.notes) drawHead(e,n,x);
+      sxs.push(stemOf(e,x,yAt(e.t)));
+    }
+    const past=eLast.t<pos-0.05; g.globalAlpha=past?.38:1; g.fillStyle=T.ink;
+    const th=sp*.42, dir=b.up?1:-1;
+    g.beginPath(); g.moveTo(sxs[0],yAt(eFirst.t)); g.lineTo(sxs[sxs.length-1],yAt(eLast.t)); g.lineTo(sxs[sxs.length-1],yAt(eLast.t)+dir*th); g.lineTo(sxs[0],yAt(eFirst.t)+dir*th); g.closePath(); g.fill();
+    g.globalAlpha=1;
+  }
+  for(const e of cs.entries){
+    if(drawn.has(e) || !visible(e)) continue;
+    const x=NX(e.t);
+    if(e.rest){
+      // 小節全体の休符(全休符)
+      if(e.dur>=cs.meter-1e-6){ const y=(e.hand==='RH'?LAY.tBot:LAY.bBot)-3*sp, cx=X(e.t+e.dur/2); g.globalAlpha=e.t<pos-0.05?.38:1; g.fillStyle=T.ink; g.fillRect(cx-hw*.55,y,hw*1.1,sp*.5); g.globalAlpha=1; }
+      continue;
+    }
+    for(const n of e.notes) drawHead(e,n,x);
+    if(e.dur2!=='whole'){
+      const yTop=yDia(e.hand,e.top), yBot=yDia(e.hand,e.bot);
+      let tip = e.up ? yTop-3.4*sp : yBot+3.4*sp;
+      const m=midY(e.hand); tip = e.up ? Math.min(tip,m) : Math.max(tip,m);
+      const sx=stemOf(e,x,tip);
+      if(e.dur2==='eighth'||e.dur2==='sixteenth'){
+        const past=e.t<pos-0.05; g.globalAlpha=past?.38:1; g.strokeStyle=T.ink; g.lineWidth=2; g.beginPath();
+        if(e.up){ g.moveTo(sx,tip); g.bezierCurveTo(sx+hw*.2,tip+sp*1.0,sx+hw*1.15,tip+sp*1.7,sx+hw*.7,tip+sp*3.1); }
+        else { g.moveTo(sx,tip); g.bezierCurveTo(sx+hw*.2,tip-sp*1.0,sx+hw*1.15,tip-sp*1.7,sx+hw*.7,tip-sp*3.1); }
+        g.stroke(); g.globalAlpha=1;
+      }
+    }
+  }
+  // 担当音のラベル(最前面)
+  g.font='800 11px '+ff; g.textAlign='center';
+  for(const c of chips){
+    const ly = c.hand==='RH' ? tTop-14 : bBot+22, w = g.measureText(c.lbl).width+12;
+    g.strokeStyle=c.col; g.globalAlpha=c.past?.15:.4; g.setLineDash([2,3]); g.lineWidth=1; g.beginPath(); g.moveTo(c.cx,c.hand==='RH'?ly+9:ly-9); g.lineTo(c.cx,c.cy+(c.hand==='RH'?-hw:hw)); g.stroke(); g.setLineDash([]);
+    g.globalAlpha=c.past?.4:1; g.fillStyle=c.col; g.beginPath(); if(g.roundRect) g.roundRect(c.cx-w/2,ly-9,w,18,9); else g.rect(c.cx-w/2,ly-9,w,18); g.fill();
+    g.fillStyle='#fff'; g.fillText(c.lbl,c.cx,ly+1); g.globalAlpha=1;
+  }
+  // 次の担当音の予告(つよい輪)
+  const nc = S.waiting ? S.pending[0] : cs.cues.find(c=>c.state==='pending' && c.t>=pos-0.6);
+  if(nc){
+    const e=cs.entries.find(en=>en.idx===nc.idx && en.notes.some(n=>n.cue===nc));
+    if(e){ const n=e.notes.find(n=>n.cue===nc), cx=NX(e.t)+n.disp*hw, cy=yDia(e.hand,n.dia);
+      const k=S.waiting?1:Math.max(0,Math.min(1,1-(nc.t-pos)/(cs.pulse*1.0)));
+      if(k>0 || S.waiting){ const li=cs.lanes.findIndex(l=>l.midi===nc.midi); g.strokeStyle=T.c[li%3]; g.lineWidth=3; g.globalAlpha=S.waiting?1:.6*k; g.beginPath(); g.arc(cx,cy,hw*(1.35+ (S.waiting?.15*Math.sin(performance.now()/90):.5*(1-k))),0,7); g.stroke(); g.globalAlpha=1; }
+    }
+  }
+  // 左の固定部分(音部記号・調号・拍子記号)
+  g.fillStyle=T.paper; g.fillRect(0,0,sc.panelW,H);
+  g.strokeStyle=T.staff; g.lineWidth=1;
+  for(const bot of [LAY.tBot,LAY.bBot]) for(let k=0;k<5;k++){ const y=bot-k*sp; g.beginPath(); g.moveTo(0,y); g.lineTo(sc.panelW,y); g.stroke(); }
+  g.strokeStyle=T.ink; g.lineWidth=1.6; g.beginPath(); g.moveTo(4,tTop); g.lineTo(4,bBot); g.stroke();
+  g.strokeStyle=T.staff; g.lineWidth=1.2; g.beginPath(); g.moveTo(sc.panelW,tTop); g.lineTo(sc.panelW,bBot); g.stroke();
+  // 音部記号
+  g.fillStyle=T.ink; g.textAlign='center';
+  if(S.musicFont){
+    g.font=Math.round(sp*5.4)+'px "Noto Music",serif'; g.fillText('\u{1D11E}',26,LAY.tBot-sp*1.2);
+    g.font=Math.round(sp*3.6)+'px "Noto Music",serif'; g.fillText('\u{1D122}',26,LAY.bBot-sp*3.0);
+  } else {
+    g.font='700 11px '+ff; g.fillText('ト音',24,LAY.tBot-2*sp); g.fillText('ヘ音',24,LAY.bBot-2*sp);
+  }
+  // 調号
+  const kp=KEY_POS[sc.keyType], ks=sc.keyN;
+  g.font='700 '+Math.round(sp*1.9)+'px "Noto Music","Segoe UI Symbol",serif'; g.textAlign='center';
+  for(let i=0;i<ks;i++){
+    const xx=46+i*10, glyph = sc.keyType==='sharp' ? '♯' : '♭';
+    g.fillText(glyph,xx,yDia('RH',kp.T[i])-1); g.fillText(glyph,xx,yDia('LH',kp.B[i])-1);
+  }
+  // 拍子記号
+  const tx = 46+(ks?ks*10+6:0)+10;
+  g.font='900 '+Math.round(sp*2.2)+'px '+ff; g.textAlign='center';
+  g.fillText(String(cs.meter),tx,LAY.tBot-3*sp); g.fillText(String(cs.whole),tx,LAY.tBot-sp);
+  g.fillText(String(cs.meter),tx,LAY.bBot-3*sp); g.fillText(String(cs.whole),tx,LAY.bBot-sp);
+}
+
+function setView(v, init){
+  S.view = v==='score' ? 'score' : 'roll'; store.set('view',S.view);
+  $('stagewrap').classList.toggle('paper', S.view==='score');
+  $('namesTg').style.visibility = S.view==='score' ? 'visible' : 'hidden';
+  document.querySelectorAll('input[name=view]').forEach(r=>{ r.checked = r.value===S.view; });
+}
+S.musicFont=false;
+try{
+  if(document.fonts && document.fonts.load){
+    document.fonts.load('40px "Noto Music"','\u{1D11E}').then(f=>{ S.musicFont = !!(f&&f.length) && document.fonts.check('40px "Noto Music"','\u{1D11E}'); }).catch(()=>{});
+  }
+}catch(e){}
+
+
 /* ---------- 入力 ---------- */
 function bindUI(){
   $('btnPlay').addEventListener('click', ()=> S.mode==='metro' ? metroToggle() : start());
@@ -938,6 +1248,8 @@ function bindUI(){
       press(S.keyMap[k]);
     }
   });
+  document.querySelectorAll('input[name=view]').forEach(r=>r.addEventListener('change',()=>setView(r.value)));
+  const on=$('optNames'); const nv=store.get('optNames',null); if(nv!==null) on.checked=nv; on.addEventListener('change',()=>store.set('optNames',on.checked));
   bindExtra();
   document.addEventListener('keyup', e=>{ if(e.key===' ' && e.target.tagName==='BUTTON') e.preventDefault(); });
   document.addEventListener('visibilitychange', ()=>{ if(document.hidden && S.running) { stop(false); setFeedback('画面が隠れたので止めました'); } });
@@ -947,7 +1259,7 @@ function bindUI(){
 }
 if(!S.songs.length){ document.body.innerHTML='<p style="padding:20px">曲データがありません。</p>'; return; }
 S.countUntil=0; S.lastInt=0;
-bindUI(); loadSong($('songSel').value); setMode(S.mode,true); fit(); frame();
+bindUI(); loadSong($('songSel').value); setMode(S.mode,true); setView(S.view,true); fit(); frame();
 window.__chime = {S, compile, parsePitch}; // 検証用
 })();
 </script>
